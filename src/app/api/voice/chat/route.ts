@@ -2,25 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import { EdgeTTS } from 'node-edge-tts';
 import { getUserActivePlan, checkFeatureAccess } from '@/lib/accessControl';
-
-// Buat direktori penyimpanan jika belum ada
-const UPLOAD_DIR_VOICE = path.join(process.cwd(), 'public', 'uploads', 'voice');
-const UPLOAD_DIR_TTS = path.join(process.cwd(), 'public', 'uploads', 'tts');
-const UPLOAD_DIR_IMAGES = path.join(process.cwd(), 'public', 'uploads', 'images');
-
-if (!fs.existsSync(UPLOAD_DIR_VOICE)) {
-  fs.mkdirSync(UPLOAD_DIR_VOICE, { recursive: true });
-}
-if (!fs.existsSync(UPLOAD_DIR_TTS)) {
-  fs.mkdirSync(UPLOAD_DIR_TTS, { recursive: true });
-}
-if (!fs.existsSync(UPLOAD_DIR_IMAGES)) {
-  fs.mkdirSync(UPLOAD_DIR_IMAGES, { recursive: true });
-}
+import { uploadToSupabase, fetchBufferFromUrl, generateEdgeTTSBuffer } from '@/lib/supabaseAdmin';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 
@@ -485,37 +468,13 @@ async function generateXAITTS(text: string, apiKey: string, voiceId: string = 'e
   return null;
 }
 
-// ── STEP 3.5: Generate TTS via Edge TTS (Free, natural, custom character settings) ──
-async function generateEdgeTTS(text: string, voiceId: string, outputPath: string): Promise<boolean> {
-  try {
-    const voiceConfigs: Record<string, { voice: string; rate: string; pitch: string }> = {
-      eve: { voice: 'id-ID-GadisNeural', rate: 'default', pitch: 'default' },
-      ara: { voice: 'id-ID-GadisNeural', rate: '+10%', pitch: '+15%' },
-      rex: { voice: 'id-ID-ArdiNeural', rate: '+5%', pitch: '-10%' },
-      sal: { voice: 'id-ID-ArdiNeural', rate: '-5%', pitch: 'default' },
-      leo: { voice: 'id-ID-ArdiNeural', rate: '+10%', pitch: '+5%' }
-    };
-
-    const config = voiceConfigs[voiceId] || voiceConfigs.eve;
-
-    console.log(`[Edge TTS] Generating TTS for voiceId: ${voiceId} (voice: ${config.voice}, rate: ${config.rate}, pitch: ${config.pitch})...`);
-    
-    const tts = new EdgeTTS({
-      voice: config.voice,
-      lang: 'id-ID',
-      rate: config.rate,
-      pitch: config.pitch,
-      outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
-    });
-
-    await tts.ttsPromise(text, outputPath);
-    console.log(`[Edge TTS] Success generating audio file at: ${outputPath}`);
-    return true;
-  } catch (error) {
-    console.error('[Edge TTS] Error generating TTS:', error);
-    return false;
-  }
-}
+const voiceConfigs: Record<string, { voice: string; rate: string; pitch: string }> = {
+  eve: { voice: 'id-ID-GadisNeural', rate: 'default', pitch: 'default' },
+  ara: { voice: 'id-ID-GadisNeural', rate: '+10%', pitch: '+15%' },
+  rex: { voice: 'id-ID-ArdiNeural', rate: '+5%', pitch: '-10%' },
+  sal: { voice: 'id-ID-ArdiNeural', rate: '-5%', pitch: 'default' },
+  leo: { voice: 'id-ID-ArdiNeural', rate: '+10%', pitch: '+5%' }
+};
 
 const SYSTEM_PROMPT = `Anda adalah Konselor empatik bernama 'Insight Hub'. Tugas Anda adalah mendengarkan curhat pengguna dan membalasnya dengan penuh empati, kehangatan, dan kepedulian.
 
@@ -844,8 +803,7 @@ async function runMultimodalPipeline(
   const aiMessageId = crypto.randomUUID();
   const aiReplyId = crypto.randomUUID();
   const ttsFileName = `${aiReplyId}.mp3`;
-  const ttsFilePath = path.join(UPLOAD_DIR_TTS, ttsFileName);
-  const aiAudioUrl = `/uploads/tts/${ttsFileName}`;
+  let aiAudioUrl: string | null = null;
   let ttsSuccess = false;
 
   const ttsLogId = crypto.randomUUID();
@@ -855,9 +813,16 @@ async function runMultimodalPipeline(
   );
 
   const ttsStart = Date.now();
-  const edgeTtsSuccess = await generateEdgeTTS(reply, voiceId, ttsFilePath);
-  if (edgeTtsSuccess) {
+  try {
+    const voiceConfig = voiceConfigs[voiceId] || voiceConfigs.eve;
+    const ttsBuffer = await generateEdgeTTSBuffer(reply, voiceConfig);
+    aiAudioUrl = await uploadToSupabase('insight-hub', `tts/${ttsFileName}`, ttsBuffer, 'audio/mpeg');
     ttsSuccess = true;
+  } catch (e) {
+    console.error('[Edge TTS] Error generating TTS:', e);
+  }
+
+  if (ttsSuccess && aiAudioUrl) {
     await dbQuery(
       `UPDATE processing_logs SET status = 'completed', duration_ms = ? WHERE id = ?`,
       [Date.now() - ttsStart, ttsLogId]
@@ -1070,13 +1035,13 @@ export async function POST(request: Request) {
         let audioMime = '';
         let audioSize = 0;
         if (lastUserMsg.audio_url) {
-          const audioFilename = path.basename(lastUserMsg.audio_url);
-          const audioPath = path.join(UPLOAD_DIR_VOICE, audioFilename);
-          if (fs.existsSync(audioPath)) {
-            audioBuffer = fs.readFileSync(audioPath);
-            audioExt = audioFilename.split('.').pop() || 'webm';
+          try {
+            audioBuffer = await fetchBufferFromUrl(lastUserMsg.audio_url);
+            audioExt = lastUserMsg.audio_url.split('.').pop()?.split('?')[0] || 'webm';
             audioMime = `audio/${audioExt}`;
             audioSize = audioBuffer.length;
+          } catch (e) {
+            console.error('Failed to download previous audio from Supabase:', e);
           }
         }
 
@@ -1085,13 +1050,13 @@ export async function POST(request: Request) {
         let imageMime = '';
         let imageSize = 0;
         if (lastUserMsg.image_url) {
-          const imageFilename = path.basename(lastUserMsg.image_url);
-          const imagePath = path.join(UPLOAD_DIR_IMAGES, imageFilename);
-          if (fs.existsSync(imagePath)) {
-            imageBuffer = fs.readFileSync(imagePath);
-            imageExt = imageFilename.split('.').pop() || 'jpg';
+          try {
+            imageBuffer = await fetchBufferFromUrl(lastUserMsg.image_url);
+            imageExt = lastUserMsg.image_url.split('.').pop()?.split('?')[0] || 'jpg';
             imageMime = `image/${imageExt === 'jpg' ? 'jpeg' : imageExt}`;
             imageSize = imageBuffer.length;
+          } catch (e) {
+            console.error('Failed to download previous image from Supabase:', e);
           }
         }
 
@@ -1177,18 +1142,16 @@ export async function POST(request: Request) {
       audioExt = audioFile.name?.split('.').pop() || 'webm';
       const userAudioId = crypto.randomUUID();
       const voiceFileName = `${userAudioId}.${audioExt}`;
-      const voiceFilePath = path.join(UPLOAD_DIR_VOICE, voiceFileName);
-      audioUrl = `/uploads/voice/${voiceFileName}`;
       audioMime = audioFile.type || 'audio/webm';
       audioSize = audioFile.size;
 
       const arrayBuffer = await audioFile.arrayBuffer();
       audioBuffer = Buffer.from(arrayBuffer);
-      fs.writeFileSync(voiceFilePath, audioBuffer);
+      audioUrl = await uploadToSupabase('insight-hub', `voice/${voiceFileName}`, audioBuffer, audioMime);
 
       await dbQuery(
         `INSERT INTO audio_files (id, file_name, file_path, file_size, mime_type, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
-        [userAudioId, audioFile.name || `voice_${Date.now()}.${audioExt}`, voiceFilePath, audioFile.size, audioMime, user.id]
+        [userAudioId, audioFile.name || `voice_${Date.now()}.${audioExt}`, audioUrl, audioFile.size, audioMime, user.id]
       );
     }
 
@@ -1209,18 +1172,16 @@ export async function POST(request: Request) {
       imageExt = imageFile.name?.split('.').pop() || 'jpg';
       const userImageId = crypto.randomUUID();
       const imageFileName = `${userImageId}.${imageExt}`;
-      const imageFilePath = path.join(UPLOAD_DIR_IMAGES, imageFileName);
-      imageUrl = `/uploads/images/${imageFileName}`;
       imageMime = imageFile.type;
       imageSize = imageFile.size;
 
       const arrayBuffer = await imageFile.arrayBuffer();
       imageBuffer = Buffer.from(arrayBuffer);
-      fs.writeFileSync(imageFilePath, imageBuffer);
+      imageUrl = await uploadToSupabase('insight-hub', `images/${imageFileName}`, imageBuffer, imageMime);
 
       await dbQuery(
         `INSERT INTO image_files (id, file_name, file_path, file_size, mime_type, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
-        [userImageId, imageFile.name || `image_${Date.now()}.${imageExt}`, imageFilePath, imageFile.size, imageMime, user.id]
+        [userImageId, imageFile.name || `image_${Date.now()}.${imageExt}`, imageUrl, imageFile.size, imageMime, user.id]
       );
     }
 

@@ -2,15 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
 import crypto from 'crypto';
-import { EdgeTTS } from 'node-edge-tts';
-import path from 'path';
-import fs from 'fs';
 import { getUserActivePlan, checkFeatureAccess } from '@/lib/accessControl';
-
-const UPLOAD_DIR_TTS = path.join(process.cwd(), 'public', 'uploads', 'tts');
-if (!fs.existsSync(UPLOAD_DIR_TTS)) {
-  fs.mkdirSync(UPLOAD_DIR_TTS, { recursive: true });
-}
+import { uploadToSupabase, generateEdgeTTSBuffer } from '@/lib/supabaseAdmin';
 
 // GET /api/voice/session - Ambil semua sesi curhat milik user
 export async function GET() {
@@ -109,7 +102,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Data onboarding wajib diisi' }, { status: 400 });
     }
 
-    const { name, status, age, gender, goal, topic, emotionLevel, aiResponsePreference } = onboarding;
+    const { name, status, goal, topic, emotionLevel, aiResponsePreference } = onboarding;
 
     // Server-side validation
     if (!name || !name.trim()) {
@@ -145,31 +138,21 @@ export async function POST(request: Request) {
     const aiMessageId = crypto.randomUUID();
     const aiReplyId = crypto.randomUUID();
     const ttsFileName = `${aiReplyId}.mp3`;
-    const ttsFilePath = path.join(UPLOAD_DIR_TTS, ttsFileName);
-    const aiAudioUrl = `/uploads/tts/${ttsFileName}`;
-    let ttsSuccess = false;
+    let aiAudioUrl: string | null = null;
 
-    // Generate Edge TTS untuk greeting awal
+    // Generate Edge TTS untuk greeting awal ke buffer, lalu upload ke Supabase
     try {
       const voiceConfig = aiResponsePreference === 'serius' 
         ? { voice: 'id-ID-ArdiNeural', rate: '-5%', pitch: 'default' } // Sal (Laki-laki hangat)
         : { voice: 'id-ID-GadisNeural', rate: 'default', pitch: 'default' }; // Eve (Perempuan lembut)
 
-      const tts = new EdgeTTS({
-        voice: voiceConfig.voice,
-        lang: 'id-ID',
-        rate: voiceConfig.rate,
-        pitch: voiceConfig.pitch,
-        outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
-      });
-
-      await tts.ttsPromise(greetingText, ttsFilePath);
-      ttsSuccess = true;
+      const audioBuffer = await generateEdgeTTSBuffer(greetingText, voiceConfig);
+      aiAudioUrl = await uploadToSupabase('insight-hub', `tts/${ttsFileName}`, audioBuffer, 'audio/mpeg');
     } catch (e) {
       console.error('Failed to generate greeting Edge TTS:', e);
     }
 
-    const finalAiAudioUrl = ttsSuccess ? aiAudioUrl : null;
+    const finalAiAudioUrl = aiAudioUrl;
 
     // 3. Simpan greeting message ke penyimpanan
     await dbQuery(
@@ -194,14 +177,14 @@ export async function POST(request: Request) {
       [aiReplyId, aiMessageId, greetingText, finalAiAudioUrl]
     );
 
-    if (ttsSuccess) {
+    if (finalAiAudioUrl) {
       await dbQuery(
         `INSERT INTO tts_outputs (id, reply_id, audio_url, text) VALUES (?, ?, ?, ?)`,
-        [crypto.randomUUID(), aiReplyId, aiAudioUrl, greetingText]
+        [crypto.randomUUID(), aiReplyId, finalAiAudioUrl, greetingText]
       );
       await dbQuery(
         `INSERT INTO ai_audio_replies (id, reply_id, audio_url, duration) VALUES (?, ?, ?, NULL)`,
-        [crypto.randomUUID(), aiReplyId, aiAudioUrl]
+        [crypto.randomUUID(), aiReplyId, finalAiAudioUrl]
       ).catch(() => {});
     }
 
