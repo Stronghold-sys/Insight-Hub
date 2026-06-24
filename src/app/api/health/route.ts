@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'pg';
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function GET() {
   const envStatus = {
@@ -17,10 +18,9 @@ export async function GET() {
   let hyperdriveStatus = 'No Hyperdrive Context';
 
   try {
-    const { getCloudflareContext } = require("@opennextjs/cloudflare");
     const ctx = getCloudflareContext();
-    if (ctx && ctx.env && ctx.env.HYPERDRIVE) {
-      hyperdriveStatus = `Hyperdrive bound (has connectionString: ${!!ctx.env.HYPERDRIVE.connectionString})`;
+    if (ctx && ctx.env && (ctx.env as any).HYPERDRIVE) {
+      hyperdriveStatus = `Hyperdrive bound (has connectionString: ${!!(ctx.env as any).HYPERDRIVE.connectionString})`;
     }
   } catch (e: any) {
     hyperdriveStatus = `Error getting context: ${e.message}`;
@@ -30,10 +30,9 @@ export async function GET() {
   let isHyperdrive = false;
 
   try {
-    const { getCloudflareContext } = require("@opennextjs/cloudflare");
     const ctx = getCloudflareContext();
-    if (ctx && ctx.env && ctx.env.HYPERDRIVE && ctx.env.HYPERDRIVE.connectionString) {
-      dbUrl = ctx.env.HYPERDRIVE.connectionString;
+    if (ctx && ctx.env && (ctx.env as any).HYPERDRIVE && (ctx.env as any).HYPERDRIVE.connectionString) {
+      dbUrl = (ctx.env as any).HYPERDRIVE.connectionString;
       isHyperdrive = true;
     }
   } catch (e) {
