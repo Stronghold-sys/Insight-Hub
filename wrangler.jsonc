@@ -1,12 +1,16 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
 	"name": "pemahaman-app",
-	"pages_build_output_dir": ".open-next",
 	"compatibility_date": "2026-06-24",
 	"compatibility_flags": [
 		"nodejs_compat",
 		"global_fetch_strictly_public"
 	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
 	"services": [
 		{
 			// Self-reference service binding, the service name must match the worker name
@@ -14,5 +18,10 @@
 			"binding": "WORKER_SELF_REFERENCE",
 			"service": "pemahaman-app"
 		}
-	]
+	],
+	"images": {
+		// Enable image optimization
+		// see https://opennext.js.org/cloudflare/howtos/image
+		"binding": "IMAGES"
+	}
 }
