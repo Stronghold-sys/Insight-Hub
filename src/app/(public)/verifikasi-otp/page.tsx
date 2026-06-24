@@ -216,6 +216,9 @@ function VerifikasiOtpContent() {
                 onChange={e => handleDigitChange(i, e.target.value)}
                 onKeyDown={e => handleKeyDown(i, e)}
                 disabled={loading}
+                placeholder="-"
+                title={`Digit ${i + 1} dari 6`}
+                aria-label={`Digit ${i + 1} dari 6`}
                 style={{
                   width: 48,
                   height: 56,

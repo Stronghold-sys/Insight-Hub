@@ -10,12 +10,26 @@ import {
 
 type AnalysisState = 'idle' | 'analyzing' | 'result'
 
+interface ChatAnalysis {
+  urgency: 'low' | 'medium' | 'high'
+  tone: string
+  intensity: number
+  tension?: number
+  passiveAggression?: number
+  defensiveness?: number
+  avoidance?: number
+  needValidation?: number
+  suggestedReply: string
+  bestReply?: string
+  rewrittenReply: string
+}
+
 export default function ChatAnalyzerPage() {
   const router = useRouter()
   const [chatInput, setChatInput] = useState('')
   const [analysisState, setAnalysisState] = useState<AnalysisState>('idle')
   const [copied, setCopied] = useState(false)
-  const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [analysisResult, setAnalysisResult] = useState<ChatAnalysis | null>(null)
   const [activeRewrite, setActiveRewrite] = useState<string | null>('lebihLembut')
   const [error, setError] = useState('')
   
@@ -375,7 +389,7 @@ Dia: Nggak papa. Terserah.`}
                     {analysisResult.bestReply}
                   </p>
                   <button
-                    onClick={() => handleCopy(analysisResult.bestReply)}
+                    onClick={() => handleCopy(analysisResult.bestReply || '')}
                     style={{
                       position: 'absolute', top: 12, right: 12,
                       padding: 6, borderRadius: 6, border: '1px solid var(--border-subtle)',
@@ -471,6 +485,8 @@ Dia: Nggak papa. Terserah.`}
             <button
               onClick={() => setShowUpgradeModal(false)}
               style={{ position: 'absolute', top: 16, right: 16, border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+              title="Tutup"
+              aria-label="Tutup"
             >
               <X size={18} />
             </button>

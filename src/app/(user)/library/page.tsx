@@ -125,6 +125,11 @@ const GLOSSARY = [
 
 const CATEGORIES = ['Semua', 'Komunikasi', 'Boundaries', 'Konflik', 'Apologi', 'Relasi', 'Emosi']
 
+interface BookmarkItem {
+  id: string
+  type: string
+}
+
 export default function LibraryPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [savedGuides, setSavedGuides] = useState<string[]>([])
@@ -140,8 +145,8 @@ export default function LibraryPage() {
         const data = await res.json()
         if (data.success && data.bookmarks) {
           const guideIds = data.bookmarks
-            .filter((b: any) => b.type === 'guide')
-            .map((b: any) => b.id)
+            .filter((b: BookmarkItem) => b.type === 'guide')
+            .map((b: BookmarkItem) => b.id)
           setSavedGuides(guideIds)
         }
       } catch (e) {
@@ -225,7 +230,12 @@ export default function LibraryPage() {
             style={{ paddingLeft: 42, borderRadius: 12 }}
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+            <button
+              onClick={() => setSearchQuery('')}
+              title="Bersihkan pencarian"
+              aria-label="Bersihkan pencarian"
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+            >
               <X size={15} />
             </button>
           )}
@@ -348,7 +358,7 @@ export default function LibraryPage() {
                 </div>
 
                 <div style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.5)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.4)', marginBottom: 12, backdropFilter: 'blur(8px)' }}>
-                  <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, fontStyle: 'italic' }}>"{tmpl.text}"</p>
+                  <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, fontStyle: 'italic' }}>&quot;{tmpl.text}&quot;</p>
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>

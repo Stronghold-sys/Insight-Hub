@@ -32,6 +32,16 @@ interface GeneratedScenario {
   partnerName: string
 }
 
+interface SessionAnalysis {
+  scores?: Record<string, number>
+  summary?: string
+  advantages?: string
+  improvements?: string
+  nextSteps?: string
+  betterResponse?: string
+  finalConclusion?: string
+}
+
 interface HistorySession {
   id: string
   title: string
@@ -43,7 +53,7 @@ interface HistorySession {
   ai_persona?: string
   partner_name?: string
   messages?: ChatMessage[]
-  analysis?: any
+  analysis?: SessionAnalysis
   turn_count: number
   avg_score: number
   status: string
@@ -53,7 +63,7 @@ interface HistorySession {
 // ─────────────────────────────────────────────
 // LEVEL CONFIG
 // ─────────────────────────────────────────────
-const LEVEL_CONFIG: Record<Level, { color: string; bg: string; border: string; icon: any; badge: string; desc: string; hint: string }> = {
+const LEVEL_CONFIG: Record<Level, { color: string; bg: string; border: string; icon: React.ElementType; badge: string; desc: string; hint: string }> = {
   Pemula: {
     color: '#17B897', bg: 'rgba(23,184,151,0.08)', border: 'rgba(23,184,151,0.25)',
     icon: Sprout, badge: 'Santai & Ringan',
@@ -115,7 +125,7 @@ export default function RoleplayPage() {
   const [showEndModal, setShowEndModal] = useState(false)
 
   // Analysis state
-  const [sessionAnalysis, setSessionAnalysis] = useState<any>(null)
+  const [sessionAnalysis, setSessionAnalysis] = useState<SessionAnalysis | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
 
   // History
@@ -325,7 +335,7 @@ export default function RoleplayPage() {
   }
 
   // ── RENDER FEEDBACK ANALYSIS CARDS ──
-  const renderAnalysisCards = (analysis: any) => {
+  const renderAnalysisCards = (analysis: SessionAnalysis | null | undefined) => {
     if (!analysis) return null
     const scores = analysis.scores || {}
     
@@ -661,7 +671,7 @@ export default function RoleplayPage() {
                           <span style={{ fontSize: 12, fontWeight: 800, color: fl.color }}>+{fb.score}</span>
                         </div>
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 6px', fontStyle: 'italic', lineHeight: 1.5 }}>
-                          "{m.text.slice(0, 90)}{m.text.length > 90 ? '...' : ''}"
+                          &quot;{m.text.slice(0, 90)}{m.text.length > 90 ? '...' : ''}&quot;
                         </p>
                         {fb.note && <p style={{ fontSize: 12, color: 'var(--text-primary)', margin: 0 }}>{fb.note}</p>}
                         {fb.alternatives && fb.alternatives.length > 0 && (
@@ -720,7 +730,13 @@ export default function RoleplayPage() {
       <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', maxWidth: 720, margin: '0 auto' }}>
         {/* Header */}
         <div className="card" style={{ padding: '12px 16px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <button onClick={() => setShowEndModal(true)} className="btn btn-ghost btn-sm" style={{ padding: 6, borderRadius: 8 }}>
+          <button
+            onClick={() => setShowEndModal(true)}
+            className="btn btn-ghost btn-sm"
+            title="Kembali ke pemilihan skenario"
+            aria-label="Kembali ke pemilihan skenario"
+            style={{ padding: 6, borderRadius: 8 }}
+          >
             <ArrowLeft size={16} />
           </button>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -817,7 +833,14 @@ export default function RoleplayPage() {
           <div style={{ padding: '9px 13px', borderRadius: 8, background: 'rgba(211,47,47,0.07)', border: '1px solid rgba(211,47,47,0.15)', display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexShrink: 0 }}>
             <AlertCircle size={13} color="var(--error)" />
             <span style={{ fontSize: 12, color: 'var(--error)', flex: 1 }}>{apiError}</span>
-            <button onClick={() => setApiError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}><X size={13} color="var(--error)" /></button>
+            <button
+              onClick={() => setApiError('')}
+              title="Tutup pesan error"
+              aria-label="Tutup pesan error"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+            >
+              <X size={13} color="var(--error)" />
+            </button>
           </div>
         )}
 
@@ -835,6 +858,8 @@ export default function RoleplayPage() {
           <button
             onClick={sendMessage}
             disabled={!inputText.trim() || apiLoading || turnCount >= MAX_TURNS}
+            title="Kirim pesan"
+            aria-label="Kirim pesan"
             style={{ width: 46, height: 46, borderRadius: 12, flexShrink: 0, alignSelf: 'flex-end', background: !inputText.trim() || apiLoading ? 'var(--border)' : 'var(--brand-blue)', color: 'white', border: 'none', cursor: !inputText.trim() || apiLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
           >
             <Send size={17} />
@@ -947,7 +972,7 @@ export default function RoleplayPage() {
               <h3 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>Gaya Bahasa</h3>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {([{ value: 'santai', label: 'Santai & Gaul', icon: Smile, desc: 'Pakai "gue/lo", bahasa santai sehari-hari' }, { value: 'formal', label: 'Lebih Formal', icon: Handshake, desc: 'Pakai "aku/kamu", bahasa lebih sopan' }] as { value: 'santai' | 'formal'; label: string; icon: any; desc: string }[]).map(opt => {
+              {([{ value: 'santai', label: 'Santai & Gaul', icon: Smile, desc: 'Pakai "gue/lo", bahasa santai sehari-hari' }, { value: 'formal', label: 'Lebih Formal', icon: Handshake, desc: 'Pakai "aku/kamu", bahasa lebih sopan' }] as { value: 'santai' | 'formal'; label: string; icon: React.ElementType; desc: string }[]).map(opt => {
                 const isSelected = langStyle === opt.value
                 return (
                   <button key={opt.value} onClick={() => setLangStyle(opt.value)}

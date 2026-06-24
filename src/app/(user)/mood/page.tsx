@@ -38,7 +38,27 @@ const MOOD_LABEL_MAP: Record<string, string> = {
   frustrated: 'Frustrasi', overwhelmed: 'Overwhelmed', excited: 'Excited',
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+interface MoodEntry {
+  id?: string | number
+  date: string
+  mood: string
+  energy: number
+  stress: number
+  note?: string
+}
+
+interface CustomTooltipProps {
+  active?: boolean
+  payload?: Array<{
+    name: string
+    value: number | string
+    color?: string
+    [key: string]: unknown
+  }>
+  label?: string
+}
+
+function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (active && payload && payload.length) {
     return (
       <div style={{
@@ -47,7 +67,7 @@ function CustomTooltip({ active, payload, label }: any) {
         boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
       }}>
         <p style={{ fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 6px' }}>{label}</p>
-        {payload.map((p: any) => (
+        {payload.map((p) => (
           <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
             <span style={{ color: 'var(--text-secondary)' }}>{p.name}: <strong style={{ color: 'var(--text-primary)' }}>{p.value}</strong></span>
@@ -68,9 +88,9 @@ export default function MoodTrackerPage() {
   const [note, setNote] = useState('')
   const [saved, setSaved] = useState(false)
   const [activeView, setActiveView] = useState<'day' | 'week' | 'month'>('week')
-  const [selectedEntry, setSelectedEntry] = useState<any>(null)
+  const [selectedEntry, setSelectedEntry] = useState<MoodEntry | null>(null)
   
-  const [dbMoods, setDbMoods] = useState<any[]>([])
+  const [dbMoods, setDbMoods] = useState<MoodEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchMoods = async () => {
@@ -91,10 +111,13 @@ export default function MoodTrackerPage() {
   }
 
   useEffect(() => {
-    fetchMoods()
-    if (typeof window !== 'undefined' && window.location.search.includes('tambah=true')) {
-      setShowInputForm(true)
-    }
+    const timer = setTimeout(() => {
+      fetchMoods()
+      if (typeof window !== 'undefined' && window.location.search.includes('tambah=true')) {
+        setShowInputForm(true)
+      }
+    }, 0)
+    return () => clearTimeout(timer)
   }, [])
 
   // Filter data sesuai view
@@ -312,7 +335,7 @@ export default function MoodTrackerPage() {
                 {chartData[0].rawEntry.note && (
                   <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border-subtle)' }}>
                     <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: 0, lineHeight: 1.5, fontStyle: 'italic' }}>
-                      "{chartData[0].rawEntry.note}"
+                      &quot;{chartData[0].rawEntry.note}&quot;
                     </p>
                   </div>
                 )}
@@ -320,9 +343,16 @@ export default function MoodTrackerPage() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
-                  onClick={(e: any) => {
-                    if (e && e.activePayload && e.activePayload.length > 0) {
-                      const entry = e.activePayload[0].payload.rawEntry
+                  onClick={(e: unknown) => {
+                    const chartEvent = e as {
+                      activePayload?: Array<{
+                        payload: {
+                          rawEntry: MoodEntry
+                        }
+                      }>
+                    } | null | undefined
+                    if (chartEvent && chartEvent.activePayload && chartEvent.activePayload.length > 0) {
+                      const entry = chartEvent.activePayload[0].payload.rawEntry
                       if (entry) setSelectedEntry(entry)
                     }
                   }}
@@ -584,15 +614,18 @@ export default function MoodTrackerPage() {
           {/* Energy */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <label className="label" style={{ margin: 0 }}>Level energi kamu</label>
+              <label htmlFor="energy-input" className="label" style={{ margin: 0 }}>Level energi kamu</label>
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-blue)' }}>{energy}/10</span>
             </div>
             <input
+              id="energy-input"
               type="range"
               min="1"
               max="10"
               value={energy}
               onChange={e => setEnergy(parseInt(e.target.value))}
+              title="Level energi"
+              aria-label="Level energi"
               style={{ width: '100%', accentColor: 'var(--brand-blue)', height: 6, borderRadius: 3, background: 'var(--border)' }}
             />
           </div>
@@ -600,17 +633,20 @@ export default function MoodTrackerPage() {
           {/* Stress */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <label className="label" style={{ margin: 0 }}>Level stres kamu</label>
+              <label htmlFor="stress-input" className="label" style={{ margin: 0 }}>Level stres kamu</label>
               <span style={{ fontSize: 13, fontWeight: 700, color: stress >= 7 ? 'var(--error)' : stress >= 5 ? 'var(--warning)' : 'var(--teal)' }}>
                 {stress}/10
               </span>
             </div>
             <input
+              id="stress-input"
               type="range"
               min="1"
               max="10"
               value={stress}
               onChange={e => setStress(parseInt(e.target.value))}
+              title="Level stres"
+              aria-label="Level stres"
               style={{
                 width: '100%',
                 accentColor: stress >= 7 ? 'var(--error)' : stress >= 5 ? 'var(--warning)' : 'var(--teal)',

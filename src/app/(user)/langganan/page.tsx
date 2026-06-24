@@ -60,25 +60,56 @@ const SUBSCRIPTION_PLANS = [
   }
 ]
 
+interface SubscriptionDetail {
+  planId: string
+  isTrial: boolean | number | string
+  startsAt: string
+  endsAt: string
+  cancelAtPeriodEnd: boolean | number | string
+}
+
+interface PaymentTransaction {
+  id: string
+  orderId?: string | null
+  amount: string | number
+  plan: string
+  method: string
+  status: string
+  date: string
+  invoiceNumber?: string | null
+}
+
+interface SubscriptionPlan {
+  id: string
+  name: string
+  price: number
+  desc: string
+  benefits: string[]
+}
+
 export default function LanggananPage() {
   const router = useRouter()
   const [activePlan, setActivePlan] = useState('free')
-  const [activeSubDetails, setActiveSubDetails] = useState<any>(null)
-  const [payments, setPayments] = useState<any[]>([])
+  const [activeSubDetails, setActiveSubDetails] = useState<SubscriptionDetail | null>(null)
+  const [payments, setPayments] = useState<PaymentTransaction[]>([])
   const [selectedPlan, setSelectedPlan] = useState('premium')
   const [loading, setLoading] = useState(true)
   const [cancelLoading, setCancelLoading] = useState(false)
   const [error, setError] = useState('')
   const [hasUsedTrial, setHasUsedTrial] = useState(false)
-  const [trialModalPlan, setTrialModalPlan] = useState<any>(null)
+  const [trialModalPlan, setTrialModalPlan] = useState<SubscriptionPlan | null>(null)
   const [trialLoading, setTrialLoading] = useState(false)
+  const [refreshBilling, setRefreshBilling] = useState(0)
 
   // Sync selectedPlan state when activePlan loads
   useEffect(() => {
     const availablePlans = SUBSCRIPTION_PLANS.filter(p => p.id !== 'free' && p.id !== activePlan)
     if (availablePlans.length > 0) {
       if (!availablePlans.some(p => p.id === selectedPlan)) {
-        setSelectedPlan(availablePlans[0].id)
+        const timer = setTimeout(() => {
+          setSelectedPlan(availablePlans[0].id)
+        }, 0)
+        return () => clearTimeout(timer)
       }
     }
   }, [activePlan, selectedPlan])
@@ -123,28 +154,8 @@ export default function LanggananPage() {
   }
   
   // Modal states
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<PaymentTransaction | null>(null)
   const [cancelTargetOrderId, setCancelTargetOrderId] = useState<string | null>(null)
-
-  const fetchBillingData = () => {
-    setLoading(true)
-    fetch('/api/user/billing')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setPayments(data.payments)
-          setActiveSubDetails(data.activeSubscription)
-          setHasUsedTrial(data.hasUsedTrial)
-          if (data.activeSubscription) {
-            setActivePlan(data.activeSubscription.planId)
-          } else {
-            setActivePlan('free')
-          }
-        }
-      })
-      .catch(err => console.error('Error fetching billing info:', err))
-      .finally(() => setLoading(false))
-  }
 
   const handleActivateTrial = async (planId: string) => {
     setTrialLoading(true)
@@ -162,7 +173,7 @@ export default function LanggananPage() {
           sessionStorage.removeItem('pendingTrialPlanId')
         }
         router.replace('/langganan')
-        fetchBillingData()
+        setRefreshBilling(c => c + 1)
       } else {
         setError(data.error || 'Gagal mengaktifkan trial. Coba lagi ya!')
       }
@@ -196,24 +207,53 @@ export default function LanggananPage() {
         if (!hasUsedTrial) {
           const matchedPlan = SUBSCRIPTION_PLANS.find(p => p.id === planId)
           if (matchedPlan) {
-            setTrialModalPlan(matchedPlan)
+            const timer = setTimeout(() => {
+              setTrialModalPlan(matchedPlan)
+            }, 0)
+            return () => clearTimeout(timer)
           }
         } else {
-          if (typeof window !== 'undefined') {
-            sessionStorage.removeItem('pendingTrialPlanId')
-          }
-          const newParams = new URLSearchParams(window.location.search)
-          newParams.delete('trialPlanId')
-          const newSearch = newParams.toString()
-          router.replace(`/langganan${newSearch ? `?${newSearch}` : ''}`)
+          const timer = setTimeout(() => {
+            if (typeof window !== 'undefined') {
+              sessionStorage.removeItem('pendingTrialPlanId')
+            }
+            const newParams = new URLSearchParams(window.location.search)
+            newParams.delete('trialPlanId')
+            const newSearch = newParams.toString()
+            router.replace(`/langganan${newSearch ? `?${newSearch}` : ''}`)
+          }, 0)
+          return () => clearTimeout(timer)
         }
       }
     }
   }, [loading, hasUsedTrial])
 
   useEffect(() => {
-    fetchBillingData()
-  }, [])
+    const timer = setTimeout(() => {
+      const fetchBillingData = async () => {
+        try {
+          const res = await fetch('/api/user/billing')
+          const data = await res.json()
+          if (data.success) {
+            setPayments(data.payments)
+            setActiveSubDetails(data.activeSubscription)
+            setHasUsedTrial(data.hasUsedTrial)
+            if (data.activeSubscription) {
+              setActivePlan(data.activeSubscription.planId)
+            } else {
+              setActivePlan('free')
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching billing info:', err)
+        } finally {
+          setLoading(false)
+        }
+      }
+      fetchBillingData()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [refreshBilling])
 
   // Confirm order cancellation
   const handleCancelOrder = async () => {
@@ -229,7 +269,7 @@ export default function LanggananPage() {
       const data = await res.json()
       if (res.ok && data.success) {
         setCancelTargetOrderId(null)
-        fetchBillingData()
+        setRefreshBilling(c => c + 1)
       } else {
         setError(data.error || 'Gagal membatalkan pesanan. Coba lagi.')
       }
@@ -478,7 +518,7 @@ export default function LanggananPage() {
                         <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '12px 16px', fontFamily: 'monospace', color: 'var(--text-primary)' }}>{p.id.substring(0, 8)}...</td>
                           <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase' }}>{p.plan}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>Rp {parseInt(p.amount).toLocaleString('id-ID')}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>Rp {parseInt(String(p.amount)).toLocaleString('id-ID')}</td>
                           <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{p.method}</td>
                           <td style={{ padding: '12px 16px' }}>
                             {getStatusBadge(p.status)}
@@ -495,7 +535,7 @@ export default function LanggananPage() {
                                   Bayar
                                 </Link>
                                 <button
-                                  onClick={() => setCancelTargetOrderId(p.orderId)}
+                                  onClick={() => setCancelTargetOrderId(p.orderId || null)}
                                   className="btn btn-secondary btn-sm"
                                   style={{ padding: '4px 8px', fontSize: 11.5, borderColor: 'rgba(211,47,47,0.15)', color: 'var(--error)' }}
                                   title="Batalkan Pesanan"
@@ -584,13 +624,13 @@ export default function LanggananPage() {
                       </div>
                     </td>
                     <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)', verticalAlign: 'top' }}>
-                      Rp {parseInt(selectedInvoice.amount).toLocaleString('id-ID')}
+                      Rp {parseInt(String(selectedInvoice.amount)).toLocaleString('id-ID')}
                     </td>
                   </tr>
                   <tr>
                     <td style={{ padding: '14px 0 6px', color: 'var(--text-secondary)' }}>Subtotal</td>
                     <td style={{ padding: '14px 0 6px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      Rp {parseInt(selectedInvoice.amount).toLocaleString('id-ID')}
+                      Rp {parseInt(String(selectedInvoice.amount)).toLocaleString('id-ID')}
                     </td>
                   </tr>
                   <tr>
@@ -600,7 +640,7 @@ export default function LanggananPage() {
                   <tr style={{ borderTop: '1px dotted var(--border)' }}>
                     <td style={{ padding: '14px 0', fontWeight: 800, color: 'var(--text-primary)', fontSize: 14 }}>Total yang Harus Dibayar</td>
                     <td style={{ padding: '14px 0', textAlign: 'right', fontWeight: 900, fontSize: 16, color: 'var(--brand-blue)' }}>
-                      Rp {parseInt(selectedInvoice.amount).toLocaleString('id-ID')}
+                      Rp {parseInt(String(selectedInvoice.amount)).toLocaleString('id-ID')}
                     </td>
                   </tr>
                 </tbody>
@@ -658,6 +698,8 @@ export default function LanggananPage() {
             <button
               onClick={closeTrialModal}
               style={{ position: 'absolute', top: 16, right: 16, border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+              title="Tutup"
+              aria-label="Tutup"
             >
               <X size={18} />
             </button>
@@ -735,6 +777,8 @@ export default function LanggananPage() {
             <button
               onClick={() => setCancelTargetOrderId(null)}
               style={{ position: 'absolute', top: 16, right: 16, border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+              title="Tutup"
+              aria-label="Tutup"
             >
               <X size={18} />
             </button>

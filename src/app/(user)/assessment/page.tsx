@@ -6,11 +6,27 @@ import { useRouter } from 'next/navigation'
 import { Search, Clock, ChevronRight, CheckCircle, Play, RefreshCw, Lock, AlertTriangle, X } from 'lucide-react'
 import * as Icons from 'lucide-react'
 
+interface AssessmentItem {
+  id: string
+  title: string
+  description: string
+  duration: string
+  icon: string
+  color: string
+  completed: boolean
+  dominant: string | null
+  completedAt: string | null
+  hasProgress: boolean
+  progressSessionId: string | null
+  progressPercent: number
+  category?: string
+}
+
 export default function AssessmentPage() {
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('semua')
-  const [assessments, setAssessments] = useState<any[]>([])
+  const [assessments, setAssessments] = useState<AssessmentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [activePlan, setActivePlan] = useState('free')
 
@@ -68,31 +84,30 @@ export default function AssessmentPage() {
     return { key: 'premium', name: 'Premium' };
   }
 
-  const fetchAssessments = async () => {
-    try {
-      // 1. Get active plan
-      const billRes = await fetch('/api/user/billing')
-      const billData = await billRes.json()
-      let currentPlan = 'free'
-      if (billData.success && billData.activeSubscription) {
-        currentPlan = billData.activeSubscription.planId
-      }
-      setActivePlan(currentPlan)
-
-      // 2. Get assessments
-      const res = await fetch('/api/assessment/list')
-      const data = await res.json()
-      if (data.success) {
-        setAssessments(data.assessments)
-      }
-    } catch (e) {
-      console.error('Failed to fetch assessments:', e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
+    const fetchAssessments = async () => {
+      try {
+        // 1. Get active plan
+        const billRes = await fetch('/api/user/billing')
+        const billData = await billRes.json()
+        let currentPlan = 'free'
+        if (billData.success && billData.activeSubscription) {
+          currentPlan = billData.activeSubscription.planId
+        }
+        setActivePlan(currentPlan)
+
+        // 2. Get assessments
+        const res = await fetch('/api/assessment/list')
+        const data = await res.json() as { success: boolean; assessments: AssessmentItem[] }
+        if (data.success) {
+          setAssessments(data.assessments)
+        }
+      } catch (e) {
+        console.error('Failed to fetch assessments:', e)
+      } finally {
+        setLoading(false)
+      }
+    }
     fetchAssessments()
   }, [])
 
@@ -108,7 +123,7 @@ export default function AssessmentPage() {
 
   // Dynamic Lucide Icon Resolver
   const renderIcon = (iconName: string, color: string, isLocked: boolean) => {
-    const IconComponent = (Icons as any)[iconName] || Icons.ClipboardList
+    const IconComponent = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[iconName] || Icons.ClipboardList
     return (
       <div style={{
         width: 44, height: 44, borderRadius: 10,
@@ -355,13 +370,15 @@ export default function AssessmentPage() {
             }}
           >
             {/* Close Button */}
-            <button
+             <button
               onClick={() => setLockModal(prev => ({ ...prev, isOpen: false }))}
               style={{
                 position: 'absolute', top: 16, right: 16,
                 border: 'none', background: 'none', color: 'var(--text-muted)',
                 cursor: 'pointer', padding: 4
               }}
+              title="Tutup"
+              aria-label="Tutup"
             >
               <X size={18} />
             </button>

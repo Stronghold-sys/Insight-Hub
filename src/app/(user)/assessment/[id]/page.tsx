@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, CheckCircle, AlertCircle,
-  Clock, BarChart2, Info, ArrowRight, Play, RefreshCw, Send, Check
+  Clock, BarChart2, Info, ArrowRight, RefreshCw, Check
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer
@@ -13,9 +13,72 @@ import {
 
 type QuizState = 'intro' | 'generating' | 'quiz' | 'analyzing' | 'result'
 
+interface Option {
+  id: string
+  option_text: string
+  option_value: string
+  score_value: number
+  order_number: number
+}
+
+interface SavedAnswer {
+  optionId: string | null
+  textAnswer: string | null
+  answerJson: string | null
+}
+
+interface Question {
+  id: string
+  question_text: string
+  question_type: string
+  category: string
+  order_number: number
+  options: Option[]
+  savedAnswer?: SavedAnswer | null
+  isSkipped?: boolean
+}
+
+interface Insight {
+  title: string
+  description: string
+}
+
+interface AnalysisResult {
+  id: string
+  sessionId: string
+  assessmentType: string
+  dominant: string
+  scores: Record<string, number>
+  confidenceScore: number
+  dataQuality: number
+  summary: string
+  insights: Insight[]
+  saran_praktis: string[]
+  rekomendasi_lanjutan: string[]
+}
+
+interface Dimension {
+  key: string
+  label: string
+}
+
+interface AssessmentItem {
+  id: string
+  title: string
+  description?: string
+  duration?: string
+  icon?: string
+  color?: string
+  completed?: boolean
+  dominant?: string | null
+  completedAt?: string | null
+  hasProgress?: boolean
+  progressSessionId?: string | null
+  progressPercent?: number
+}
+
 export default function AssessmentDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const id = params.id as string
 
   const [state, setState] = useState<QuizState>('intro')
@@ -23,10 +86,10 @@ export default function AssessmentDetailPage() {
   const [currentQ, setCurrentQ] = useState(0)
   const [totalQuestions, setTotalQuestions] = useState(15)
   const [assessmentTitle, setAssessmentTitle] = useState('')
-  const [dimensions, setDimensions] = useState<any[]>([])
+  const [dimensions, setDimensions] = useState<Dimension[]>([])
 
   // Quiz active question state
-  const [question, setQuestion] = useState<any>(null)
+  const [question, setQuestion] = useState<Question | null>(null)
   const [loadingQuestion, setLoadingQuestion] = useState(false)
 
   // Question answers state
@@ -37,7 +100,7 @@ export default function AssessmentDetailPage() {
   const [rankingOrder, setRankingOrder] = useState<string[]>([]) // ranking order of option IDs
 
   // Final analysis results
-  const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [loadingAction, setLoadingAction] = useState(false)
 
   // Custom Error Modal state
@@ -104,9 +167,9 @@ export default function AssessmentDetailPage() {
           setTotalQuestions(data.totalQuestions)
           // Fetch assessment metadata to display correct title
           const listRes = await fetch('/api/assessment/list')
-          const listData = await listRes.json()
+          const listData = await listRes.json() as { success: boolean; assessments: AssessmentItem[] }
           if (listData.success) {
-            const currentItem = listData.assessments.find((a: any) => a.id === id)
+            const currentItem = listData.assessments.find((a) => a.id === id)
             if (currentItem) {
               setAssessmentTitle(currentItem.title)
             }
@@ -124,9 +187,9 @@ export default function AssessmentDetailPage() {
           
           // Fetch assessment title from list in any case
           const listRes = await fetch('/api/assessment/list')
-          const listData = await listRes.json()
+          const listData = await listRes.json() as { success: boolean; assessments: AssessmentItem[] }
           if (listData.success) {
-            const currentItem = listData.assessments.find((a: any) => a.id === id)
+            const currentItem = listData.assessments.find((a) => a.id === id)
             if (currentItem) {
               setAssessmentTitle(currentItem.title)
             }
@@ -160,10 +223,11 @@ export default function AssessmentDetailPage() {
         setState('intro')
         showError(data.message || 'Gagal memulai assessment.', 'Gagal Memulai Assessment')
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err)
       setState('intro')
-      showError(err?.message || 'Koneksi bermasalah.', 'Koneksi Bermasalah')
+      const message = err instanceof Error ? err.message : 'Koneksi bermasalah.'
+      showError(message, 'Koneksi Bermasalah')
     }
   }
 
@@ -229,7 +293,13 @@ export default function AssessmentDetailPage() {
     setLoadingAction(true)
 
     try {
-      let payload: any = {
+      const payload: {
+        sessionId: string
+        questionId: string
+        optionId?: string | null
+        optionIds?: string[]
+        textAnswer?: string
+      } = {
         sessionId,
         questionId: question.id
       }
@@ -291,9 +361,10 @@ export default function AssessmentDetailPage() {
           throw new Error(analyzeData.message || 'Analisis gagal')
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err)
-      showError(err.message || 'Terjadi kesalahan sistem pengerjaan.', 'Sistem Pengerjaan Bermasalah')
+      const message = err instanceof Error ? err.message : 'Terjadi kesalahan sistem pengerjaan.'
+      showError(message, 'Sistem Pengerjaan Bermasalah')
       setState('quiz')
     } finally {
       setLoadingAction(false)
@@ -478,7 +549,7 @@ export default function AssessmentDetailPage() {
     // VIEW: RESULT STATE
     // ==========================================
     if (state === 'result' && analysisResult) {
-      const scoresData = Object.entries(analysisResult.scores).map(([name, score]: [string, any]) => {
+      const scoresData = Object.entries(analysisResult.scores).map(([name, score]) => {
         // Format key name to start uppercase or split camelCase
         const formattedName = name.replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase())
         return {
@@ -559,7 +630,7 @@ export default function AssessmentDetailPage() {
                 <YAxis dataKey="name" type="category" tick={{ fontSize: 12, fill: '#536171' }} axisLine={false} tickLine={false} width={100} />
                 <Tooltip
                   contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)', borderRadius: 6, fontSize: 12 }}
-                  formatter={(v: any) => [`${v}%`, 'Skor']}
+                  formatter={(v: unknown) => [`${v}%`, 'Skor']}
                 />
                 <Bar dataKey="score" radius={[0, 4, 4, 0]}>
                   {scoresData.map((entry, i) => (
@@ -574,7 +645,7 @@ export default function AssessmentDetailPage() {
           <div className="card" style={{ padding: 24, marginBottom: 20 }}>
             <h3 style={{ fontSize: 15, marginBottom: 16 }}>Penjelasan Dimensi</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {analysisResult.insights.map((insight: any, i: number) => (
+              {analysisResult.insights.map((insight, i) => (
                 <div key={i} style={{ padding: '14px 16px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: 6 }}>
                     {insight.title}
@@ -654,6 +725,8 @@ export default function AssessmentDetailPage() {
                 disabled={currentQ === 0 || loadingAction}
                 className="btn btn-ghost btn-sm"
                 style={{ padding: 8 }}
+                title="Kembali ke soal sebelumnya"
+                aria-label="Kembali"
               >
                 <ChevronLeft size={14} />
               </button>
@@ -710,7 +783,7 @@ export default function AssessmentDetailPage() {
               {/* 1. Choice Inputs (multiple_choice_single, situational, boolean) */}
               {(question.question_type === 'multiple_choice_single' || question.question_type === 'situational' || question.question_type === 'boolean') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
-                  {question.options.map((option: any) => (
+                  {question.options.map((option) => (
                     <button
                       key={option.id}
                       onClick={() => setSelectedOption(option.id)}
@@ -748,7 +821,7 @@ export default function AssessmentDetailPage() {
               {/* 2. Checkbox Inputs (multiple_choice_multi) */}
               {question.question_type === 'multiple_choice_multi' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
-                  {question.options.map((option: any) => {
+                  {question.options.map((option) => {
                     const isChecked = selectedOptions.includes(option.id)
                     return (
                       <button
@@ -863,6 +936,8 @@ export default function AssessmentDetailPage() {
                     max="100"
                     value={scaleVal}
                     onChange={e => setScaleVal(Number(e.target.value))}
+                    title="Slider penilaian"
+                    aria-label="Slider penilaian"
                     style={{
                       width: '100%',
                       accentColor: 'var(--brand-blue)',
@@ -889,6 +964,8 @@ export default function AssessmentDetailPage() {
                     value={textVal}
                     onChange={e => setTextVal(e.target.value)}
                     placeholder="Ketik refleksi diri kamu secara jujur di sini (minimal 3 karakter)..."
+                    title="Refleksi diri"
+                    aria-label="Refleksi diri"
                     style={{ width: '100%', padding: '14px', resize: 'vertical', minHeight: 120 }}
                   />
                 </div>
@@ -902,6 +979,8 @@ export default function AssessmentDetailPage() {
                     value={textVal}
                     onChange={e => setTextVal(e.target.value)}
                     placeholder="Ketik jawaban singkat kamu..."
+                    title="Jawaban singkat"
+                    aria-label="Jawaban singkat"
                     style={{ width: '100%' }}
                   />
                 </div>
@@ -914,7 +993,7 @@ export default function AssessmentDetailPage() {
                     Pilih opsi di bawah ini sesuai urutan kecocokan (teratas = paling menggambarkan diri Anda).
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {question.options.map((option: any) => {
+                    {question.options.map((option) => {
                       const idx = rankingOrder.indexOf(option.id)
                       const isRanked = idx !== -1
                       return (

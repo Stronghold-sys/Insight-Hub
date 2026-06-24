@@ -9,6 +9,15 @@ import {
   Loader2, Volume2, RefreshCw, Flag, Heart, X
 } from 'lucide-react'
 
+// Helper functions defined outside component to remain pure during render
+function generateTempMessageId(): string {
+  return `temp-${Date.now()}`
+}
+
+function getFormattedCurrentTime(): string {
+  return new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+}
+
 interface Session {
   id: string
   title: string
@@ -144,10 +153,13 @@ export default function VoiceTalkPage() {
   }
 
   useEffect(() => {
-    const saved = localStorage.getItem('insight-hub-voice-id')
-    if (saved) {
-      setSelectedVoice(saved)
-    }
+    const timer = setTimeout(() => {
+      const saved = localStorage.getItem('insight-hub-voice-id')
+      if (saved) {
+        setSelectedVoice(saved)
+      }
+    }, 0)
+    return () => clearTimeout(timer)
   }, [])
 
   const handleVoiceChange = (voice: string) => {
@@ -220,43 +232,7 @@ export default function VoiceTalkPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
 
-  // Fetch all sessions on mount
-  useEffect(() => {
-    // Check active plan
-    fetch('/api/user/billing')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.activeSubscription) {
-          setActivePlan(data.activeSubscription.planId)
-        }
-        setPlanLoading(false)
-      })
-      .catch(() => setPlanLoading(false))
-
-    fetchSessions()
-    return () => {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause()
-      }
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel()
-      }
-    }
-  }, [])
-
-  // Auto scroll to bottom of chat
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isProcessing, errorMsg])
-
-  // Reset dismissed error state on session change
-  useEffect(() => {
-    setDismissedError(false)
-  }, [currentSession])
-
-
-
-  const fetchSessions = async (selectId?: string) => {
+  async function fetchSessions(selectId?: string) {
     setLoadingSessions(true)
     try {
       const res = await fetch('/api/voice/session')
@@ -302,7 +278,7 @@ export default function VoiceTalkPage() {
     }
   }
 
-  const fetchMessages = async (sessionId: string) => {
+  async function fetchMessages(sessionId: string) {
     setLoadingMessages(true)
     setErrorMsg('')
     try {
@@ -319,6 +295,46 @@ export default function VoiceTalkPage() {
       setLoadingMessages(false)
     }
   }
+
+  // Fetch all sessions on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // Check active plan
+      fetch('/api/user/billing')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.activeSubscription) {
+            setActivePlan(data.activeSubscription.planId)
+          }
+          setPlanLoading(false)
+        })
+        .catch(() => setPlanLoading(false))
+
+      fetchSessions()
+    }, 0)
+
+    return () => {
+      clearTimeout(timer)
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause()
+      }
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel()
+      }
+    }
+  }, [])
+
+  // Auto scroll to bottom of chat
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isProcessing, errorMsg])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDismissedError(false)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [currentSession])
 
   const handleCreateSession = () => {
     setCurrentSession(null)
@@ -361,7 +377,7 @@ export default function VoiceTalkPage() {
     setErrorMsg('')
 
     const capturedText = typedText.trim()
-    const tempId = `temp-${Date.now()}`
+    const tempId = generateTempMessageId()
     const tempUserMsg: Message = {
       id: tempId,
       sender: 'user',
@@ -373,7 +389,7 @@ export default function VoiceTalkPage() {
       ai_text_reply: null,
       ai_audio_url: null,
       status: 'pending',
-      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      time: getFormattedCurrentTime()
     }
     setMessages(prev => [...prev, tempUserMsg])
     setTypedText('')
@@ -743,6 +759,8 @@ export default function VoiceTalkPage() {
               {/* Close Button */}
               <button
                 onClick={() => setShowLockModal(false)}
+                title="Tutup"
+                aria-label="Tutup"
                 style={{
                   position: 'absolute', top: 16, right: 16,
                   border: 'none', background: 'none', color: 'var(--text-muted)',
@@ -845,6 +863,8 @@ export default function VoiceTalkPage() {
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Menu Curhat</span>
             <button 
               onClick={() => setIsSidebarOpen(false)}
+              title="Tutup menu"
+              aria-label="Tutup menu"
               style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
             >
               ✕
@@ -1003,10 +1023,13 @@ export default function VoiceTalkPage() {
                   </button>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }} className="suara-label">Suara:</span>
+                    <label htmlFor="voice-select" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }} className="suara-label">Suara:</label>
                     <select
+                      id="voice-select"
                       value={selectedVoice}
                       onChange={(e) => handleVoiceChange(e.target.value)}
+                      title="Pilih Suara Teman Curhat"
+                      aria-label="Pilih Suara Teman Curhat"
                       style={{
                         padding: '6px 10px',
                         borderRadius: 6,
@@ -1163,14 +1186,14 @@ export default function VoiceTalkPage() {
                                   <p style={{ fontSize: 11.5, color: 'rgba(255, 255, 255, 0.80)', margin: 0, fontStyle: 'italic', borderTop: (msg.audio_url || msg.image_url || msg.content) ? '1px solid rgba(255,255,255,0.15)' : 'none', paddingTop: (msg.audio_url || msg.image_url || msg.content) ? 6 : 0 }}>
                                     {msg.status === 'failed' ? (
                                       <span style={{ color: '#ffcbd1', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
-                                        <AlertTriangle size={12} /> Gagal diproses. Silakan klik tombol "Retry" di sebelah kanan bawah.
+                                        <AlertTriangle size={12} /> Gagal diproses. Silakan klik tombol &quot;Retry&quot; di sebelah kanan bawah.
                                       </span>
                                     ) : msg.status === 'pending' ? (
                                       <span style={{ color: '#e0f2fe', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                         <Loader2 size={12} className="spinner" /> Sedang memproses curhatmu...
                                       </span>
                                     ) : msg.transcript_text && msg.audio_url ? (
-                                      `Transkrip: "${msg.transcript_text}"`
+                                      <span>Transkrip: &quot;{msg.transcript_text}&quot;</span>
                                     ) : null}
                                   </p>
                                 )}
@@ -1188,6 +1211,8 @@ export default function VoiceTalkPage() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(2,134,195,0.05)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(2,134,195,0.1)' }}>
                                       <button
                                         onClick={() => playAudio(msg.id, msg.ai_audio_url!)}
+                                        title={playingAudioId === msg.id ? 'Jeda suara' : 'Putar suara'}
+                                        aria-label={playingAudioId === msg.id ? 'Jeda suara' : 'Putar suara'}
                                         style={{
                                           width: 28, height: 28, borderRadius: '50%',
                                           background: 'var(--brand-blue)', color: 'white',
@@ -1205,6 +1230,8 @@ export default function VoiceTalkPage() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(2, 134, 195, 0.05)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(2, 134, 195, 0.1)' }}>
                                       <button
                                         onClick={() => playLocalSpeech(msg.id, msg.ai_text_reply!)}
+                                        title={playingAudioId === msg.id ? 'Jeda suara' : 'Putar suara'}
+                                        aria-label={playingAudioId === msg.id ? 'Jeda suara' : 'Putar suara'}
                                         style={{
                                           width: 28, height: 28, borderRadius: '50%',
                                           background: 'var(--brand-blue)', color: 'white',
@@ -1343,6 +1370,8 @@ export default function VoiceTalkPage() {
                     value={typedText}
                     onChange={(e) => setTypedText(e.target.value)}
                     placeholder="Ceritakan apa yang sedang kamu rasakan..."
+                    title="Ketik curhat kamu"
+                    aria-label="Ketik curhat kamu"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !isProcessing) {
                         sendTextMessage()
@@ -1401,7 +1430,7 @@ export default function VoiceTalkPage() {
                   {/* Row 1: Nama Panggilan & Usia */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-name" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Nama Panggilan <span style={{ color: 'var(--error)' }}>*</span>
                       </label>
                       <input
@@ -1409,6 +1438,7 @@ export default function VoiceTalkPage() {
                         placeholder="Contoh: Budi, Angel, Rian"
                         value={onboardingForm.name}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, name: e.target.value }))}
+                        id="onboarding-name"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1424,7 +1454,7 @@ export default function VoiceTalkPage() {
                       {formErrors.name && <span style={{ fontSize: 11, color: 'var(--error)', marginTop: 4, display: 'block' }}>{formErrors.name}</span>}
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-age" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Usia (Opsional)
                       </label>
                       <input
@@ -1432,6 +1462,7 @@ export default function VoiceTalkPage() {
                         placeholder="Contoh: 22"
                         value={onboardingForm.age}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, age: e.target.value }))}
+                        id="onboarding-age"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1449,12 +1480,15 @@ export default function VoiceTalkPage() {
                   {/* Row 2: Status Hubungan & Gender */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-status" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Status Hubungan <span style={{ color: 'var(--error)' }}>*</span>
                       </label>
                       <select
                         value={onboardingForm.status}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, status: e.target.value }))}
+                        id="onboarding-status"
+                        title="Status Hubungan"
+                        aria-label="Status Hubungan"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1478,12 +1512,15 @@ export default function VoiceTalkPage() {
                       {formErrors.status && <span style={{ fontSize: 11, color: 'var(--error)', marginTop: 4, display: 'block' }}>{formErrors.status}</span>}
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-gender" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Sapaan / Panggilan (Opsional)
                       </label>
                       <select
                         value={onboardingForm.gender}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, gender: e.target.value }))}
+                        id="onboarding-gender"
+                        title="Sapaan / Panggilan"
+                        aria-label="Sapaan / Panggilan"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1508,12 +1545,15 @@ export default function VoiceTalkPage() {
                   {/* Row 3: Topik Utama & Tujuan Curhat */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-topic" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Topik Curhat <span style={{ color: 'var(--error)' }}>*</span>
                       </label>
                       <select
                         value={onboardingForm.topic}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, topic: e.target.value }))}
+                        id="onboarding-topic"
+                        title="Topik Curhat"
+                        aria-label="Topik Curhat"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1538,12 +1578,15 @@ export default function VoiceTalkPage() {
                       {formErrors.topic && <span style={{ fontSize: 11, color: 'var(--error)', marginTop: 4, display: 'block' }}>{formErrors.topic}</span>}
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-goal" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Tujuan Curhat <span style={{ color: 'var(--error)' }}>*</span>
                       </label>
                       <select
                         value={onboardingForm.goal}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, goal: e.target.value }))}
+                        id="onboarding-goal"
+                        title="Tujuan Curhat"
+                        aria-label="Tujuan Curhat"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
@@ -1570,12 +1613,15 @@ export default function VoiceTalkPage() {
                   {/* Row 4: Tingkat Emosi & Preferensi Respon */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                      <label htmlFor="onboarding-emotion-level" style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
                         Kondisi Emosi Saat Ini <span style={{ color: 'var(--error)' }}>*</span>
                       </label>
                       <select
                         value={onboardingForm.emotionLevel}
                         onChange={(e) => setOnboardingForm(prev => ({ ...prev, emotionLevel: e.target.value }))}
+                        id="onboarding-emotion-level"
+                        title="Kondisi Emosi Saat Ini"
+                        aria-label="Kondisi Emosi Saat Ini"
                         style={{
                           width: '100%',
                           padding: '10px 14px',

@@ -54,53 +54,80 @@ const TYPE_CONFIG = {
   reflection: { label: 'Refleksi', color: 'var(--brand-blue)', bg: 'rgba(2,134,195,0.08)', icon: BookOpen },
 }
 
+interface JournalEntry {
+  id: string
+  title: string
+  content: string
+  mood: string
+  date: string
+  tags: string[]
+  entryType: string
+  relatedPerson?: string | null
+  intensity?: number
+  isStarred: boolean
+  isFlagged: boolean
+}
+
+interface RawJournalEntry {
+  id: string
+  title: string
+  content: string
+  mood: string
+  date: string
+  tag?: string | null
+}
+
 export default function JournalPage() {
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState('semua')
   const [showNewForm, setShowNewForm] = useState(false)
-  const [selectedEntry, setSelectedEntry] = useState<any>(null)
+  const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null)
   const [newEntry, setNewEntry] = useState({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' })
   const [saved, setSaved] = useState(false)
   const [deletedToast, setDeletedToast] = useState(false)
   
-  const [entries, setEntries] = useState<any[]>([])
+  const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
-
-  const fetchEntries = async () => {
-    try {
-      const res = await fetch('/api/journal')
-      const data = await res.json()
-      if (data.success && data.entries.length > 0) {
-        // Map database fields to UI fields
-        const mapped = data.entries.map((e: any) => ({
-          id: e.id,
-          title: e.title,
-          content: e.content,
-          mood: e.mood,
-          date: e.date,
-          tags: e.tag ? e.tag.split(',').map((t: string) => t.trim()) : [],
-          entryType: e.tag && e.tag.toLowerCase().includes('konflik') ? 'conflict' : 'reflection',
-          isStarred: false,
-          isFlagged: false,
-        }))
-        setEntries(mapped)
-      } else {
-        setEntries(INITIAL_MOCK_JOURNALS)
-      }
-    } catch (e) {
-      console.error(e)
-      setEntries(INITIAL_MOCK_JOURNALS)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [refreshCount, setRefreshCount] = useState(0)
 
   useEffect(() => {
-    fetchEntries()
-    if (typeof window !== 'undefined' && window.location.search.includes('tambah=true')) {
-      setShowNewForm(true)
+    const fetchEntries = async () => {
+      try {
+        const res = await fetch('/api/journal')
+        const data = await res.json()
+        if (data.success && data.entries.length > 0) {
+          // Map database fields to UI fields
+          const mapped: JournalEntry[] = data.entries.map((e: RawJournalEntry) => ({
+            id: e.id,
+            title: e.title,
+            content: e.content,
+            mood: e.mood,
+            date: e.date,
+            tags: e.tag ? e.tag.split(',').map((t: string) => t.trim()) : [],
+            entryType: e.tag && e.tag.toLowerCase().includes('konflik') ? 'conflict' : 'reflection',
+            isStarred: false,
+            isFlagged: false,
+          }))
+          setEntries(mapped)
+        } else {
+          setEntries(INITIAL_MOCK_JOURNALS)
+        }
+      } catch (e) {
+        console.error(e)
+        setEntries(INITIAL_MOCK_JOURNALS)
+      } finally {
+        setLoading(false)
+      }
     }
-  }, [])
+    fetchEntries()
+
+    if (typeof window !== 'undefined' && window.location.search.includes('tambah=true')) {
+      const timer = setTimeout(() => {
+        setShowNewForm(true)
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [refreshCount])
 
   const filtered = entries.filter(e => {
     const matchSearch = e.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -131,7 +158,7 @@ export default function JournalPage() {
         setSaved(true)
         setShowNewForm(false)
         setNewEntry({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' })
-        fetchEntries()
+        setRefreshCount(c => c + 1)
         setTimeout(() => setSaved(false), 3000)
       }
     } catch (err) {
@@ -158,7 +185,7 @@ export default function JournalPage() {
       if (res.ok) {
         setSelectedEntry(null)
         setDeletedToast(true)
-        fetchEntries()
+        setRefreshCount(c => c + 1)
         setTimeout(() => setDeletedToast(false), 3000)
       } else {
         alert('Gagal menghapus entri jurnal')
@@ -316,11 +343,14 @@ export default function JournalPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label className="label">Tipe kejadian</label>
+              <label className="label" htmlFor="entry-type">Tipe kejadian</label>
               <select
+                id="entry-type"
                 className="input"
                 value={newEntry.entryType}
                 onChange={e => setNewEntry(f => ({ ...f, entryType: e.target.value }))}
+                title="Tipe kejadian"
+                aria-label="Tipe kejadian"
               >
                 <option value="reflection">Refleksi Pribadi</option>
                 <option value="conflict">Konflik</option>
@@ -329,11 +359,14 @@ export default function JournalPage() {
               </select>
             </div>
             <div>
-              <label className="label">Mood saat itu</label>
+              <label className="label" htmlFor="entry-mood">Mood saat itu</label>
               <select
+                id="entry-mood"
                 className="input"
                 value={newEntry.mood}
                 onChange={e => setNewEntry(f => ({ ...f, mood: e.target.value }))}
+                title="Mood saat itu"
+                aria-label="Mood saat itu"
               >
                 <option value="happy">Senang</option>
                 <option value="calm">Tenang</option>
