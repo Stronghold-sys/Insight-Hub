@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "node scripts/build-pages.js",
+    "build": "next build",
+    "build:pages": "node scripts/build-pages.js",
     "dev": "next dev",
     "start": "next start",
     "lint": "eslint",
