@@ -23,5 +23,12 @@
 		// Enable image optimization
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
-	}
+	},
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "78bfb81d963a48c081c128f3df4c49da",
+			"localConnectionString": "postgresql://postgres.rghbldixllmhnppwqgbr:tUC19enJnVZzfVAz@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres"
+		}
+	]
 }

@@ -1,22 +1,12 @@
-import { Pool } from 'pg';
+import { Client } from 'pg';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-// Inisialisasi pool koneksi ke database Supabase PostgreSQL secara lazy
-let pool: Pool | null = null;
-
-export function getPool(): Pool {
-  if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.SUPABASE_DB_URL,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-      ssl: { rejectUnauthorized: false }
-    });
-  }
-  return pool;
+// getPool fallback to preserve module exports if any
+export function getPool() {
+  return null;
 }
+
 
 function translateDateFormatString(mysqlFormat: string): string {
   let pgFormat = mysqlFormat;
@@ -160,10 +150,50 @@ export function normalizeKeys(row: any) {
 
 export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   const convertedSql = convertQuery(sql);
-  const currentPool = getPool();
+  
+  let dbUrl = process.env.SUPABASE_DB_URL;
+  let isHyperdrive = false;
   
   try {
-    const result = await currentPool.query(convertedSql, params);
+    const { getCloudflareContext } = require("@opennextjs/cloudflare");
+    const ctx = getCloudflareContext();
+    if (ctx && ctx.env && ctx.env.HYPERDRIVE && ctx.env.HYPERDRIVE.connectionString) {
+      dbUrl = ctx.env.HYPERDRIVE.connectionString;
+      isHyperdrive = true;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  let servername: string | undefined = undefined;
+  if (dbUrl) {
+    console.log('[DB] Connection URL:', dbUrl.replace(/:[^:@/]+@/, ':***@'));
+    if (!isHyperdrive) {
+      if (dbUrl.includes('sslmode=')) {
+        dbUrl = dbUrl.replace(/[?&]sslmode=[^&]+/g, '');
+      }
+      dbUrl = dbUrl.replace(':5432/', ':6543/');
+      
+      const hostMatch = dbUrl.match(/@([^:/]+)/);
+      if (hostMatch) {
+        servername = hostMatch[1];
+      }
+    }
+  } else {
+    console.warn('[DB] Database URL is UNDEFINED at runtime!');
+  }
+
+  const client = new Client({
+    connectionString: dbUrl,
+    ssl: isHyperdrive ? false : { 
+      rejectUnauthorized: false,
+      servername: servername
+    }
+  });
+  
+  try {
+    await client.connect();
+    const result = await client.query(convertedSql, params);
     return result.rows.map(normalizeKeys) as T[];
   } catch (error) {
     console.error('Database Query Error (PostgreSQL):', error);
@@ -171,15 +201,30 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     console.error('Converted SQL:', convertedSql);
     console.error('Parameters:', params);
 
-    // Catat log error ke table error_logs secara asynchronous
-    const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
-    currentPool.query(logSql, [
-      error instanceof Error ? error.message : String(error),
-      error instanceof Error ? (error.stack || null) : null,
-      sql.substring(0, 255)
-    ]).catch(err => console.error('Failed to log error to database:', err));
-
+    // Catat log error ke table error_logs secara asynchronous dengan client baru
+    const logClient = new Client({
+      connectionString: dbUrl,
+      ssl: isHyperdrive ? false : { 
+        rejectUnauthorized: false,
+        servername: servername
+      }
+    });
+    try {
+      await logClient.connect();
+      const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
+      await logClient.query(logSql, [
+        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? (error.stack || null) : null,
+        sql.substring(0, 255)
+      ]);
+    } catch (err) {
+      console.error('Failed to log error to database:', err);
+    } finally {
+      await logClient.end().catch(() => {});
+    }
     throw error;
+  } finally {
+    await client.end().catch(() => {});
   }
 }
 
