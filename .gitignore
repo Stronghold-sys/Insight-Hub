@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scratch and temporary scripts
+/scratch/
+/check-users-plain.js
+/migrate_roleplay.js
+
