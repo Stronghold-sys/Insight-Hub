@@ -17,7 +17,7 @@ export async function GET() {
              a.sentiment, a.tone, a.urgency_conflict as urgency, a.confidence_score as confidence
       FROM chat_sessions s
       JOIN chat_analysis a ON s.id = a.session_id
-      WHERE s.user_id = ?
+      WHERE s.user_id = ?::text
       ORDER BY s.created_at DESC
       LIMIT 10
     `;
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
     // Basic plan limit check (max 10 analysis)
     if (plan === 'basic') {
-      const chatCountRes = await dbQuery<any>('SELECT COUNT(*) as count FROM chat_sessions WHERE user_id = ?', [user.id]);
+      const chatCountRes = await dbQuery<any>('SELECT COUNT(*) as count FROM chat_sessions WHERE user_id = ?::text', [user.id]);
       const totalChats = chatCountRes[0]?.count || 0;
       if (totalChats >= 10) {
         return NextResponse.json({

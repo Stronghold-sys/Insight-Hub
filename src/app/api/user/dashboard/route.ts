@@ -11,13 +11,13 @@ export async function GET() {
 
     // 1. Get profile/onboarding status
     const [profile] = await dbQuery(
-      'SELECT nickname, full_name, mode FROM user_profiles WHERE user_id = ?',
+      'SELECT nickname, full_name, mode FROM user_profiles WHERE user_id = ?::text',
       [user.id]
     );
 
     // 2. Get completed assessments count
     const completedCountRes = await dbQuery(
-      'SELECT COUNT(DISTINCT assessment_id) as count FROM analysis_results WHERE user_id = ?',
+      'SELECT COUNT(DISTINCT assessment_id) as count FROM analysis_results WHERE user_id = ?::text',
       [user.id]
     );
     const completedAssessments = completedCountRes[0]?.count || 0;
@@ -26,17 +26,17 @@ export async function GET() {
     const journalCountRes = await dbQuery(
       `SELECT COUNT(*) as count 
        FROM journal_entries je 
-       JOIN journals j ON je.journal_id = j.id 
-       WHERE j.user_id = ?`,
+       JOIN journals j ON je.journal_id::uuid = j.id 
+       WHERE j.user_id = ?::uuid`,
       [user.id]
     );
     const totalJournalEntries = journalCountRes[0]?.count || 0;
 
     // 4. Calculate active streak (number of distinct days with activities)
     const streakRes = await dbQuery(
-      `SELECT COUNT(DISTINCT DATE(created_at)) as streak 
+      `SELECT COUNT(DISTINCT CAST(created_at AS date)) as streak 
        FROM user_activities 
-       WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
+       WHERE user_id = ?::text AND created_at >= (NOW() - INTERVAL '30 days')`,
       [user.id]
     );
     const streak = streakRes[0]?.streak || 1; // Default to 1 if user just onboarded
@@ -45,7 +45,7 @@ export async function GET() {
     const todayMoodRes = await dbQuery(
       `SELECT mood, energy, stress 
        FROM mood_entries 
-       WHERE user_id = ? AND date = CURDATE() 
+       WHERE user_id = ?::text AND date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') 
        LIMIT 1`,
       [user.id]
     );
@@ -53,9 +53,9 @@ export async function GET() {
 
     // 6. Get mood history (last 7 entries)
     const moodHistory = await dbQuery(
-      `SELECT mood, energy, stress, DATE_FORMAT(date, '%Y-%m-%d') as date 
+      `SELECT mood, energy, stress, date 
        FROM mood_entries 
-       WHERE user_id = ? 
+       WHERE user_id = ?::text 
        ORDER BY date DESC 
        LIMIT 7`,
       [user.id]
@@ -65,10 +65,10 @@ export async function GET() {
 
     // 7. Get recent journal entries (last 3)
     const recentJournals = await dbQuery(
-      `SELECT je.title, je.mood, je.content, je.tag, DATE_FORMAT(je.created_at, '%Y-%m-%d') as date 
+      `SELECT je.title, je.mood, je.content, je.tag, TO_CHAR(je.created_at, 'YYYY-MM-DD') as date 
        FROM journal_entries je 
-       JOIN journals j ON je.journal_id = j.id 
-       WHERE j.user_id = ? 
+       JOIN journals j ON je.journal_id::uuid = j.id 
+       WHERE j.user_id = ?::uuid 
        ORDER BY je.created_at DESC 
        LIMIT 3`,
       [user.id]
@@ -76,10 +76,10 @@ export async function GET() {
 
     // 8. Get recent insights from assessment results
     const recentInsights = await dbQuery(
-      `SELECT ar.dominant_category, DATE_FORMAT(ar.completed_at, '%Y-%m-%d') as date, a.title 
+      `SELECT ar.dominant_category, TO_CHAR(ar.completed_at, 'YYYY-MM-DD') as date, a.title 
        FROM analysis_results ar 
-       JOIN assessments a ON ar.assessment_id = a.id 
-       WHERE ar.user_id = ? 
+       JOIN assessments a ON ar.assessment_id::uuid = a.id 
+       WHERE ar.user_id = ?::text 
        ORDER BY ar.completed_at DESC 
        LIMIT 3`,
       [user.id]
@@ -87,23 +87,23 @@ export async function GET() {
 
     // 9. Get completed assessment IDs
     const completedAssessmentsList = await dbQuery(
-      'SELECT assessment_id FROM analysis_results WHERE user_id = ?',
+      'SELECT assessment_id FROM analysis_results WHERE user_id = ?::text',
       [user.id]
     );
     const completedIds = completedAssessmentsList.map(a => a.assessment_id);
 
     // 10. Get chat analyzer stats
     const chatCountRes = await dbQuery(
-      'SELECT COUNT(*) as count FROM chat_sessions WHERE user_id = ?',
+      'SELECT COUNT(*) as count FROM chat_sessions WHERE user_id = ?::text',
       [user.id]
     );
     const totalChats = chatCountRes[0]?.count || 0;
 
     const lastChatRes = await dbQuery(
-      `SELECT a.tone, a.urgency_conflict as urgency, DATE_FORMAT(s.created_at, '%Y-%m-%d') as date
+      `SELECT a.tone, a.urgency_conflict as urgency, TO_CHAR(s.created_at, 'YYYY-MM-DD') as date
        FROM chat_sessions s
        JOIN chat_analysis a ON s.id = a.session_id
-       WHERE s.user_id = ?
+       WHERE s.user_id = ?::text
        ORDER BY s.created_at DESC
        LIMIT 1`,
       [user.id]
@@ -112,9 +112,9 @@ export async function GET() {
 
     // 11. Get recent unread notifications
     const recentNotifications = await dbQuery(
-      `SELECT id, title, message, priority, DATE_FORMAT(created_at, '%Y-%m-%d') as date
+      `SELECT id, title, message, priority, TO_CHAR(created_at, 'YYYY-MM-DD') as date
        FROM notifications
-       WHERE user_id = ? AND is_read = 0
+       WHERE user_id = ?::uuid AND is_read = false
        ORDER BY created_at DESC
        LIMIT 2`,
       [user.id]
@@ -122,9 +122,9 @@ export async function GET() {
 
     // 12. Get recent activities (last session history)
     const recentActivities = await dbQuery(
-      `SELECT activity_type, description, DATE_FORMAT(created_at, '%Y-%m-%d') as date
+      `SELECT activity_type, description, TO_CHAR(created_at, 'YYYY-MM-DD') as date
        FROM user_activities
-       WHERE user_id = ?
+       WHERE user_id = ?::text
        ORDER BY created_at DESC
        LIMIT 3`,
       [user.id]
