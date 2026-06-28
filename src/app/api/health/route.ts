@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import postgres from 'postgres';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const skipDb = searchParams.get('nodb') === '1';
+
   const envStatus = {
     SUPABASE_DB_URL: !!process.env.SUPABASE_DB_URL,
     NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -24,6 +27,17 @@ export async function GET() {
     }
   } catch (e: any) {
     hyperdriveStatus = `Error getting context: ${e.message}`;
+  }
+
+  if (skipDb) {
+    return NextResponse.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      envStatus,
+      hyperdriveStatus,
+      dbConnection: 'Skipped via nodb=1',
+      dbError: null,
+    });
   }
 
   let dbUrl = process.env.SUPABASE_DB_URL;
