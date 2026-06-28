@@ -7,34 +7,49 @@ export async function GET() {
     const user = await getSessionUser();
     
     if (!user) {
-      return NextResponse.json({ authenticated: false, user: null });
+      // 401 = truly not logged in
+      return NextResponse.json({ authenticated: false, user: null }, { status: 401 });
     }
 
-    // Query full profile data (bio, age, relationship, etc.)
-    const profileRows = await dbQuery<any>(
-      `SELECT bio, age, relationship_status AS "relationshipStatus", relationship_goal AS "relationshipGoal",
-              communication_preference AS "communicationPreference", timezone, privacy_level AS "privacyLevel",
-              data_sharing_consent AS "dataSharingConsent", language_tone AS "languageTone", avatar_url AS "avatarUrl"
-       FROM user_profiles WHERE user_id = ?`,
-      [user.id]
-    );
-    const profile = profileRows.length > 0 ? profileRows[0] : {};
+    // Query full profile data (isolated so errors here don't break authentication)
+    let profile: Record<string, any> = {};
+    try {
+      const profileRows = await dbQuery<any>(
+        `SELECT bio, age,
+                relationship_status AS "relationshipStatus",
+                relationship_goal AS "relationshipGoal",
+                communication_preference AS "communicationPreference",
+                timezone,
+                privacy_level AS "privacyLevel",
+                data_sharing_consent AS "dataSharingConsent",
+                language_tone AS "languageTone",
+                avatar_url AS "avatarUrl"
+         FROM user_profiles WHERE user_id::text = ?`,
+        [String(user.id)]
+      );
+      if (profileRows.length > 0) profile = profileRows[0];
+    } catch (profileErr) {
+      console.warn('[GET /api/auth/me] Could not fetch profile extras (non-fatal):', profileErr);
+    }
 
-    // Query active subscription plan
-    const activeSub = await dbQuery<any>(
-      `SELECT plan_id FROM subscriptions 
-       WHERE user_id::text = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > NOW())
-       ORDER BY starts_at DESC LIMIT 1`,
-      [user.id]
-    );
-    const plan = activeSub.length > 0 ? activeSub[0].plan_id : 'free';
+    // Query active subscription plan (isolated)
+    let plan = 'free';
+    try {
+      const activeSub = await dbQuery<any>(
+        `SELECT plan_id FROM subscriptions 
+         WHERE user_id::text = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > NOW())
+         ORDER BY starts_at DESC LIMIT 1`,
+        [String(user.id)]
+      );
+      if (activeSub.length > 0) plan = activeSub[0].plan_id;
+    } catch (subErr) {
+      console.warn('[GET /api/auth/me] Could not fetch subscription (non-fatal):', subErr);
+    }
 
     return NextResponse.json({
       authenticated: true,
       user: {
         ...user,
-        // Merge full profile - profile.avatarUrl overrides the one from getSessionUser
-        // so we always get the latest stored avatar
         ...profile,
         avatarUrl: profile.avatarUrl || user.avatarUrl || null,
         plan
@@ -42,7 +57,8 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Error during me GET API:', error);
-    return NextResponse.json({ authenticated: false, error: 'Internal Server Error' }, { status: 500 });
+    // Return 500 but NOT authenticated:false so client can distinguish server error from auth failure
+    return NextResponse.json({ authenticated: null, error: 'Internal Server Error' }, { status: 500 });
   }
 }
 

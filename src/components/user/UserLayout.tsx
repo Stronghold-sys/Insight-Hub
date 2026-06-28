@@ -70,8 +70,15 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
 
   useEffect(() => {
     fetch('/api/auth/me')
-      .then(res => res.json())
-      .then(data => {
+      .then(async res => {
+        const data = await res.json();
+        // Only redirect to login if server explicitly says unauthenticated (401)
+        // Do NOT redirect on 500/server errors to avoid false redirect loops
+        if (res.status === 401 || data.authenticated === false) {
+          const currentPath = window.location.pathname + window.location.search;
+          window.location.href = `/masuk?redirect=${encodeURIComponent(currentPath)}`;
+          return;
+        }
         if (data.authenticated) {
           if (!data.user.onboardingCompleted && window.location.pathname !== '/onboarding') {
             window.location.href = '/onboarding';
@@ -108,15 +115,13 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
           }
 
           fetchNotifCount()
-        } else {
-          const currentPath = window.location.pathname + window.location.search;
-          window.location.href = `/masuk?redirect=${encodeURIComponent(currentPath)}`;
         }
+        // If authenticated is null (server error), stay on page — don't redirect
         setLoading(false);
       })
       .catch(() => {
-        const currentPath = window.location.pathname + window.location.search;
-        window.location.href = `/masuk?redirect=${encodeURIComponent(currentPath)}`;
+        // Network error — stay on page, don't redirect to login
+        console.warn('[UserLayout] Could not reach /api/auth/me — staying on page')
         setLoading(false);
       });
   }, [])
