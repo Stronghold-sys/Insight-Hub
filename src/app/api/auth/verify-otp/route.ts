@@ -91,8 +91,8 @@ export async function POST(request: Request) {
           )
           const nick = profileRows[0]?.nickname || 'Kamu'
           await dbQuery(
-            'INSERT INTO journals (id, user_id, title) VALUES (?, ?, ?)',
-            [crypto.randomUUID(), userId, `Jurnal ${nick}`]
+            'INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)',
+            [crypto.randomUUID(), userId, `Jurnal ${nick}`, '']
           )
         }
 

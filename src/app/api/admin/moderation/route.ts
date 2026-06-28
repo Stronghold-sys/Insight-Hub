@@ -24,7 +24,7 @@ export async function GET(request: Request) {
               CONCAT('Konten terdeteksi: ', ml.categories) as content
        FROM moderation_logs ml
        JOIN users u ON ml.user_id = u.id
-       LEFT JOIN user_profiles p ON u.id = p.user_id
+       LEFT JOIN user_profiles p ON u.id::text = p.user_id
        WHERE ml.flagged = 1
        ORDER BY ml.created_at DESC
        LIMIT 50`

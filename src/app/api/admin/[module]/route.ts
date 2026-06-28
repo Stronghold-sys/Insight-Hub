@@ -61,9 +61,9 @@ export async function GET(
       let sql = `
         SELECT u.id, u.email, u.is_active as isActive, r.id as role, p.full_name as fullName, p.nickname, p.avatar_url as avatarUrl, DATE_FORMAT(u.created_at, '%Y-%m-%d') as joinedDate
         FROM users u
-        JOIN user_roles ur ON u.id = ur.user_id
+        JOIN user_roles ur ON u.id::text = ur.user_id
         JOIN roles r ON ur.role_id = r.id
-        LEFT JOIN user_profiles p ON u.id = p.user_id
+        LEFT JOIN user_profiles p ON u.id::text = p.user_id
       `;
       
       const paramsArray: any[] = [];
@@ -101,7 +101,7 @@ export async function GET(
         `SELECT a.id, a.action, a.details, DATE_FORMAT(a.created_at, '%Y-%m-%d %H:%i:%s') as date, u.email, p.nickname
          FROM audit_logs a
          LEFT JOIN users u ON a.user_id = u.id
-         LEFT JOIN user_profiles p ON u.id = p.user_id
+         LEFT JOIN user_profiles p ON u.id::text = p.user_id
          ORDER BY a.created_at DESC
          LIMIT 50`
       );
@@ -170,7 +170,7 @@ export async function GET(
         SELECT t.id, t.subject, t.description, t.status, t.priority, DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i') as date, p.nickname, u.email
         FROM support_tickets t
         JOIN users u ON t.user_id = u.id
-        LEFT JOIN user_profiles p ON u.id = p.user_id
+        LEFT JOIN user_profiles p ON u.id::text = p.user_id
         ORDER BY t.created_at DESC
       `);
       return NextResponse.json({ success: true, tickets });
@@ -181,7 +181,7 @@ export async function GET(
         SELECT m.id, m.action_type as actionType, m.reason, DATE_FORMAT(m.created_at, '%Y-%m-%d %H:%i') as date, u.email as targetEmail, p.nickname as targetNickname
         FROM moderation_actions m
         JOIN users u ON m.target_user_id = u.id
-        LEFT JOIN user_profiles p ON u.id = p.user_id
+        LEFT JOIN user_profiles p ON u.id::text = p.user_id
         ORDER BY m.created_at DESC
       `);
       return NextResponse.json({ success: true, moderationActions });

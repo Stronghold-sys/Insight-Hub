@@ -16,7 +16,7 @@ export async function GET() {
     if (journals.length === 0) {
       // Buat default journal jika belum ada
       const journalId = crypto.randomUUID();
-      await dbQuery('INSERT INTO journals (id, user_id, title) VALUES (?, ?, ?)', [journalId, user.id, `Jurnal ${user.nickname}`]);
+      await dbQuery('INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)', [journalId, user.id, `Jurnal ${user.nickname}`, '']);
       journals = [{ id: journalId }];
     }
 
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     let journals = await dbQuery('SELECT id FROM journals WHERE user_id = ? LIMIT 1', [user.id]);
     if (journals.length === 0) {
       const journalId = crypto.randomUUID();
-      await dbQuery('INSERT INTO journals (id, user_id, title) VALUES (?, ?, ?)', [journalId, user.id, `Jurnal ${user.nickname}`]);
+      await dbQuery('INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)', [journalId, user.id, `Jurnal ${user.nickname}`, '']);
       journals = [{ id: journalId }];
     }
 

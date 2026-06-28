@@ -55,7 +55,8 @@ function LoginContent() {
       }
     } catch (err) {
       setLoading(false);
-      setAuthError('Gagal menyambung ke server. Pastikan server lokal kamu menyala ya!');
+      console.error('Login fetch error:', err);
+      setAuthError('Gagal menyambung ke server. Coba beberapa saat lagi ya!');
     }
   }
 

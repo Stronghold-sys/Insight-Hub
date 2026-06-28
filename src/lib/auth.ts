@@ -43,9 +43,9 @@ export async function getSessionUser(): Promise<AuthUser | null> {
       p.mode
     FROM sessions s
     JOIN users u ON s.user_id = u.id
-    JOIN user_roles ur ON u.id = ur.user_id
+    JOIN user_roles ur ON u.id::text = ur.user_id
     JOIN roles r ON ur.role_id = r.id
-    LEFT JOIN user_profiles p ON u.id = p.user_id
+    LEFT JOIN user_profiles p ON u.id::text = p.user_id
     WHERE s.token = ? AND s.expires_at > NOW()
     LIMIT 1
   `;

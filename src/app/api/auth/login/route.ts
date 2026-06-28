@@ -151,7 +151,7 @@ export async function POST(request: Request) {
 
     // Ambil profile info
     const profiles = await dbQuery<any>(
-      'SELECT nickname, full_name, role_id FROM user_profiles p JOIN user_roles ur ON p.user_id = ur.user_id WHERE p.user_id = ?',
+      'SELECT nickname, full_name, role_id FROM user_profiles p JOIN user_roles ur ON p.user_id = ur.user_id WHERE p.user_id = ?::text',
       [user.id]
     )
 

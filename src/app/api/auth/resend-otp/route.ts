@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     // Ambil nama user untuk email
     const profileRows = await dbQuery<any>(
       `SELECT up.nickname FROM users u
-       LEFT JOIN user_profiles up ON u.id = up.user_id
+       LEFT JOIN user_profiles up ON u.id::text = up.user_id
        WHERE u.email = ? LIMIT 1`,
       [email]
     )

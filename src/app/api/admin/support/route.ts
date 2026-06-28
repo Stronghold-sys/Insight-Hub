@@ -43,7 +43,7 @@ export async function GET(request: Request) {
              (SELECT COUNT(*) FROM support_replies WHERE ticket_id = t.id) as repliesCount
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
-      LEFT JOIN user_profiles p ON u.id = p.user_id
+      LEFT JOIN user_profiles p ON u.id::text = p.user_id
       WHERE 1=1
     `;
     const params: any[] = [];

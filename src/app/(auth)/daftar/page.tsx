@@ -48,7 +48,8 @@ function RegisterContent() {
       }
     } catch (err) {
       setLoading(false);
-      setRegisterError('Gagal menyambung ke server. Pastikan server lokal kamu menyala ya!');
+      console.error('Register fetch error:', err);
+      setRegisterError('Gagal menyambung ke server. Coba beberapa saat lagi ya!');
     }
   }
 

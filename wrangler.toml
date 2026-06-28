@@ -14,6 +14,6 @@ id = "2d8ed3e2cdd044f88cc94e2805d9a5a2"
 binding = "HYPERDRIVE"
 id = "2d8ed3e2cdd044f88cc94e2805d9a5a2"
 
-[vars]
+[env.production.vars]
 NEXT_PUBLIC_SUPABASE_URL = "https://rghbldixllmhnppwqgbr.supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_do5e7rQ63h9gfYobYm1ndA_vOJ7Zb7o"
