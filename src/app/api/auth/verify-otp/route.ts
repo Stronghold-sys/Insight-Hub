@@ -115,7 +115,7 @@ export async function POST(request: Request) {
         )
         const name = profileRes[0]?.nickname || 'Kamu'
         await dbQuery(
-          'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, 0, ?)',
+          'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, false, ?)',
           [
             crypto.randomUUID(),
             userId,

@@ -43,7 +43,7 @@ export async function GET() {
 
       for (const n of defaultNotifs) {
         await dbQuery(
-          'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, 0, ?)',
+          'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, false, ?)',
           [n.id, user.id, n.title, n.message, n.priority]
         );
       }

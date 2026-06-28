@@ -831,7 +831,7 @@ ATURAN HASIL:
 
     // Insert notification
     await dbQuery(
-      'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, 0, ?)',
+      'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, false, ?)',
       [
         crypto.randomUUID(),
         user.id,
