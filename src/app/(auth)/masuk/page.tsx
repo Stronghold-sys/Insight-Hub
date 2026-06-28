@@ -115,7 +115,7 @@ function LoginContent() {
               Selamat datang kembali!
             </h2>
             <p style={{ color: 'var(--text-secondary, #666)', fontSize: 15, marginBottom: 24 }}>
-              Halo <strong>{successName}</strong> 👋 Kamu berhasil masuk. Mengarahkan ke dasbor...
+              Halo <strong>{successName}</strong>! Kamu berhasil masuk. Mengarahkan ke dasbor...
             </p>
             {/* Progress bar */}
             <div style={{
