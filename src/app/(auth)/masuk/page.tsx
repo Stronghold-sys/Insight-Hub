@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react'
 import { validateEmail } from '@/lib/utils'
 import { supabase } from '@/lib/supabaseClient'
+import { Turnstile } from '@marsidev/react-turnstile'
 
 function LoginContent() {
   const searchParams = useSearchParams()
@@ -15,6 +16,7 @@ function LoginContent() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const justVerified = searchParams.get('verified') === '1'
 
   const validate = () => {
@@ -28,13 +30,16 @@ function LoginContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setAuthError('')
-    if (!validate()) return
+    if (!captchaToken) {
+      setAuthError('Silakan selesaikan verifikasi keamanan terlebih dahulu.')
+      return
+    }
     setLoading(true)
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, captchaToken })
       });
       const data = await res.json();
       setLoading(false);
@@ -163,6 +168,16 @@ function LoginContent() {
               {errors.password && (
                 <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 4 }}>{errors.password}</p>
               )}
+            </div>
+
+            {/* Cloudflare Turnstile */}
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 16px' }}>
+              <Turnstile
+                siteKey="0x4AAAAAAADsYqw_eHQeq4gKS"
+                onSuccess={(token) => setCaptchaToken(token)}
+                onExpire={() => setCaptchaToken(null)}
+                onError={() => setCaptchaToken(null)}
+              />
             </div>
 
             <button
