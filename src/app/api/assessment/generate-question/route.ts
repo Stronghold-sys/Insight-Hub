@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const questionIndex = parseInt(questionIndexStr, 10)
 
     // Check if session exists and is active
-    const sessions = await dbQuery(
+    const sessions = await dbQuery<any>(
       `SELECT * FROM assessment_sessions 
        WHERE id = ? AND user_id = ? AND status IN ('sedang berjalan', 'terhenti sementara', 'gagal sinkron') LIMIT 1`,
       [sessionId, user.id]
@@ -32,29 +32,54 @@ export async function GET(request: Request) {
 
     const session = sessions[0]
 
-    // Fetch the question based on category_id and order_number
-    const questions = await dbQuery(
-      'SELECT * FROM assessment_questions WHERE category_id = ? AND order_number = ? AND status = "active" LIMIT 1',
-      [session.category_id, questionIndex + 1]
+    // ============================================================
+    // RANDOM ENGINE: Ambil question_id berdasarkan display_order
+    // dari tabel assessment_attempt_questions (urutan acak)
+    // ============================================================
+    let question: any = null
+
+    const attemptRows = await dbQuery<any>(
+      'SELECT question_id FROM assessment_attempt_questions WHERE session_id = ? AND display_order = ? LIMIT 1',
+      [sessionId, questionIndex]
     )
 
-    if (questions.length === 0) {
+    if (attemptRows.length > 0) {
+      // Gunakan urutan acak yang sudah tersimpan
+      const targetQuestionId = attemptRows[0].question_id
+      const qRows = await dbQuery<any>(
+        'SELECT * FROM assessment_questions WHERE id = ? AND status = \'active\' LIMIT 1',
+        [targetQuestionId]
+      )
+      if (qRows.length > 0) question = qRows[0]
+    }
+
+    // ============================================================
+    // FALLBACK: Jika belum ada data di attempt_questions (session lama),
+    // gunakan order_number lama agar backward compatible
+    // ============================================================
+    if (!question) {
+      const qRows = await dbQuery<any>(
+        'SELECT * FROM assessment_questions WHERE category_id = ? AND order_number = ? AND status = \'active\' LIMIT 1',
+        [session.category_id, questionIndex + 1]
+      )
+      if (qRows.length > 0) question = qRows[0]
+    }
+
+    if (!question) {
       return NextResponse.json({ message: 'Pertanyaan tidak ditemukan' }, { status: 404 })
     }
 
-    const question = questions[0]
-
-    // Fetch options from V2 table
-    const options = await dbQuery(
+    // Fetch options
+    const options = await dbQuery<any>(
       'SELECT id, option_text, option_value, score_value, order_number FROM assessment_question_options WHERE question_id = ? ORDER BY order_number ASC',
       [question.id]
     )
 
     // Filter virtual options
-    const regularOptions = options.filter(opt => opt.option_text !== '__scale__' && opt.option_text !== '__text__')
-    
-    // Check if user has already answered this question in this session
-    const answers = await dbQuery(
+    const regularOptions = options.filter((opt: any) => opt.option_text !== '__scale__' && opt.option_text !== '__text__')
+
+    // Check previously saved answer
+    const answers = await dbQuery<any>(
       'SELECT selected_option_id, answer_text, answer_json FROM assessment_answers WHERE session_id = ? AND question_id = ? LIMIT 1',
       [sessionId, question.id]
     )
@@ -65,10 +90,10 @@ export async function GET(request: Request) {
       answerJson: answers[0].answer_json
     } : null
 
-    // Determine if question should be skipped dynamically based on dependencies
+    // Evaluate skip condition based on dependency
     let isSkipped = false
     if (question.depends_on_question_id) {
-      const parentAnswers = await dbQuery(
+      const parentAnswers = await dbQuery<any>(
         'SELECT selected_option_id, answer_text FROM assessment_answers WHERE session_id = ? AND question_id = ? LIMIT 1',
         [sessionId, question.depends_on_question_id]
       )
@@ -76,7 +101,7 @@ export async function GET(request: Request) {
         isSkipped = true
       } else {
         const parentAns = parentAnswers[0]
-        const parentOpts = await dbQuery(
+        const parentOpts = await dbQuery<any>(
           'SELECT option_value FROM assessment_question_options WHERE id = ? LIMIT 1',
           [parentAns.selected_option_id]
         )
