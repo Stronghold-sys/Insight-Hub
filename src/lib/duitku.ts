@@ -1,286 +1,285 @@
-import crypto from 'crypto';
-import { dbQuery } from './db';
+/**
+ * Duitku Payment Gateway — Core Library
+ *
+ * Dokumentasi resmi: https://docs.duitku.com
+ *
+ * KEAMANAN:
+ * - Semua credentials dibaca dari environment variables
+ * - Tidak ada hardcoded API key, merchant code, atau URL
+ * - Fail-fast jika env vars tidak dikonfigurasi
+ */
+import crypto from 'crypto'
 
-const DUITKU_MERCHANT_CODE = process.env.DUITKU_MERCHANT_CODE || 'D12345'; // fallback default
-const DUITKU_MERCHANT_KEY = process.env.DUITKU_MERCHANT_KEY || 'api_key_placeholder';
-const DUITKU_IS_SANDBOX = process.env.DUITKU_IS_SANDBOX !== 'false'; // default is true (sandbox)
+// ============================================================
+// Configuration — Fail-fast jika env vars tidak dikonfigurasi
+// ============================================================
+function getRequiredEnv(key: string): string {
+  const val = process.env[key]
+  if (!val || val.trim() === '') {
+    throw new Error(
+      `[Duitku] Environment variable "${key}" tidak dikonfigurasi. ` +
+      `Set di .env (local) dan Cloudflare Pages Dashboard (production).`
+    )
+  }
+  return val.trim()
+}
 
-const BASE_URL = DUITKU_IS_SANDBOX
-  ? 'https://sandbox.duitku.com/webapi/api/merchant'
-  : 'https://passport.duitku.com/webapi/api/merchant';
+function getConfig() {
+  const merchantCode = getRequiredEnv('DUITKU_MERCHANT_CODE')
+  const merchantKey  = getRequiredEnv('DUITKU_MERCHANT_KEY')
+  const isSandbox    = (process.env.DUITKU_IS_SANDBOX || 'false').toLowerCase() === 'true'
+  const callbackUrl  = process.env.DUITKU_CALLBACK_URL || ''
+  const returnUrl    = process.env.DUITKU_RETURN_URL || ''
+  const expiryMinutes = parseInt(process.env.DUITKU_EXPIRY_MINUTES || '1440', 10)
 
+  const baseUrl = isSandbox
+    ? 'https://sandbox.duitku.com/webapi/api/merchant'
+    : 'https://passport.duitku.com/webapi/api/merchant'
+
+  return { merchantCode, merchantKey, isSandbox, callbackUrl, returnUrl, expiryMinutes, baseUrl }
+}
+
+// ============================================================
+// Types
+// ============================================================
 export interface DuitkuPaymentMethod {
-  name: string;
-  paymentMethod: string;
-  paymentImage: string;
+  name: string
+  paymentMethod: string
+  paymentImage: string
+  totalFee?: number
 }
 
 export interface DuitkuTransactionRequest {
-  paymentAmount: number;
-  merchantOrderId: string;
-  productDetails: string;
-  email: string;
-  paymentMethod: string;
-  customerVaName: string;
-  callbackUrl: string;
-  returnUrl: string;
-  expiryPeriod?: number; // in minutes
+  paymentAmount: number
+  merchantOrderId: string
+  productDetails: string
+  email: string
+  paymentMethod: string
+  customerVaName: string
+  /** Override callback URL — defaults to DUITKU_CALLBACK_URL env var */
+  callbackUrl?: string
+  /** Override return URL — defaults to DUITKU_RETURN_URL env var */
+  returnUrl?: string
+  expiryPeriod?: number
   customerDetail?: {
-    firstName: string;
-    lastName?: string;
-    email: string;
-    phoneNumber?: string;
-  };
+    firstName: string
+    lastName?: string
+    email: string
+    phoneNumber?: string
+  }
 }
 
 export interface DuitkuTransactionResponse {
-  merchantCode: string;
-  reference: string;
-  paymentUrl: string;
-  vaNumber?: string;
-  statusCode: string;
-  statusMessage: string;
+  merchantCode: string
+  reference: string
+  paymentUrl: string
+  vaNumber?: string
+  statusCode: string
+  statusMessage: string
 }
 
 export interface DuitkuStatusResponse {
-  merchantOrderId: string;
-  reference: string;
-  amount: string;
-  statusCode: string;
-  statusMessage: string;
+  merchantOrderId: string
+  reference: string
+  amount: string
+  statusCode: string
+  statusMessage: string
 }
 
+// ============================================================
+// Internal HTTP helper with timeout + retry
+// ============================================================
+async function duitkuFetch(
+  url: string,
+  payload: object,
+  timeoutMs = 15000,
+  maxRetries = 2
+): Promise<any> {
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '(no body)')
+        throw new Error(`HTTP ${res.status}: ${errText.substring(0, 300)}`)
+      }
+
+      return await res.json()
+    } catch (err: any) {
+      lastError = err
+      console.warn(`[Duitku] Attempt ${attempt}/${maxRetries} failed: ${err.message}`)
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * attempt)) // backoff
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  throw lastError || new Error('[Duitku] All retry attempts failed')
+}
+
+// ============================================================
+// Public API: Get Payment Methods
+// ============================================================
 /**
- * Get active payment methods enabled for the merchant account
+ * Ambil daftar metode pembayaran yang aktif untuk merchant.
+ * Selalu dari Duitku API — tidak ada fallback statis.
  */
 export async function getDuitkuPaymentMethods(amount: number): Promise<DuitkuPaymentMethod[]> {
-  const fallbacks = [
-    { name: 'BCA Virtual Account', paymentMethod: 'BC', paymentImage: 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg' },
-    { name: 'Mandiri Virtual Account', paymentMethod: 'M2', paymentImage: 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg' },
-    { name: 'BNI Virtual Account', paymentMethod: 'I1', paymentImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Bank_Negara_Indonesia_logo_%282004%29.svg' },
-    { name: 'Permata Virtual Account', paymentMethod: 'BT', paymentImage: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Permata_Bank_%282024%29.svg' },
-    { name: 'QRIS (Dana, OVO, ShopeePay)', paymentMethod: 'SP', paymentImage: 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg' },
-  ];
+  const cfg = getConfig()
 
-  if (DUITKU_MERCHANT_KEY === 'api_key_placeholder') {
-    console.log('[Duitku SIMULATION] Using static fallback payment methods');
-    return fallbacks;
+  const datetime = new Date()
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\..+/, '') // "YYYY-MM-DD HH:mm:ss"
+
+  // Signature: SHA256(merchantCode + amount + datetime + merchantKey)
+  const sigSource = cfg.merchantCode + amount.toString() + datetime + cfg.merchantKey
+  const signature = crypto.createHash('sha256').update(sigSource).digest('hex')
+
+  const endpoint = `${cfg.baseUrl}/paymentmethod/getpaymentmethod`
+  const payload = {
+    merchantcode: cfg.merchantCode,
+    amount,
+    datetime,
+    signature,
   }
 
-  try {
-    const datetime = new Date().toISOString()
-      .replace(/T/, ' ')
-      .replace(/\..+/, ''); // Format: YYYY-MM-DD HH:mm:ss
+  console.log(`[Duitku] Fetching payment methods (sandbox=${cfg.isSandbox}, amount=${amount})`)
 
-    // signature formula: sha256(merchantCode + amount + datetime + merchantKey)
-    const signatureSource = DUITKU_MERCHANT_CODE + amount.toString() + datetime + DUITKU_MERCHANT_KEY;
-    const signature = crypto.createHash('sha256').update(signatureSource).digest('hex');
+  const data = await duitkuFetch(endpoint, payload)
 
-    const endpoint = `${BASE_URL}/paymentmethod/getpaymentmethod`;
-    const payload = {
-      merchantcode: DUITKU_MERCHANT_CODE,
-      amount: amount,
-      datetime: datetime,
-      signature: signature,
-    };
-
-    console.log('[Duitku] Fetching payment methods from:', endpoint);
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('[Duitku] Payment methods error response:', errText);
-      throw new Error(`Duitku HTTP error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (data && Array.isArray(data.paymentFee)) {
-      return data.paymentFee.map((item: any) => {
-        let image = item.paymentImage;
-        if (item.paymentMethod === 'BC') image = 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg';
-        else if (item.paymentMethod === 'M2') image = 'https://upload.wikimedia.org/wikipedia/commons/a/ad/Bank_Mandiri_logo_2016.svg';
-        else if (item.paymentMethod === 'I1') image = 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Bank_Negara_Indonesia_logo_%282004%29.svg';
-        else if (item.paymentMethod === 'BT') image = 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Permata_Bank_%282024%29.svg';
-        else if (item.paymentMethod === 'SP') image = 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Logo_QRIS.svg';
-
-        return {
-          name: item.name,
-          paymentMethod: item.paymentMethod,
-          paymentImage: image,
-        };
-      });
-    }
-
-    console.warn('[Duitku] No paymentFee array in response:', data);
-    return [];
-  } catch (error) {
-    console.error('[Duitku] Failed to fetch payment methods:', error);
-    // Return static fallback for robust development if API fails or credentials are placeholders
-    return fallbacks;
+  if (!data || !Array.isArray(data.paymentFee)) {
+    console.warn('[Duitku] Unexpected payment methods response:', JSON.stringify(data).substring(0, 200))
+    return []
   }
+
+  return data.paymentFee.map((item: any) => ({
+    name: item.name,
+    paymentMethod: item.paymentMethod,
+    paymentImage: item.paymentImage || '',
+    totalFee: item.totalFee || 0,
+  }))
 }
 
+// ============================================================
+// Public API: Create Invoice (Inquiry)
+// ============================================================
 /**
- * Create a transaction invoice/inquiry at Duitku
+ * Buat transaksi baru di Duitku.
+ * Signature: MD5(merchantCode + merchantOrderId + paymentAmount + merchantKey)
  */
 export async function createDuitkuInvoice(req: DuitkuTransactionRequest): Promise<DuitkuTransactionResponse> {
-  if (DUITKU_MERCHANT_KEY === 'api_key_placeholder') {
-    console.log('[Duitku SIMULATION] Creating simulated invoice for Order:', req.merchantOrderId);
-    const isVA = ['BC', 'M2', 'I1', 'BT'].includes(req.paymentMethod);
-    const reference = `SIM-REF-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    
-    return {
-      merchantCode: DUITKU_MERCHANT_CODE,
-      reference: reference,
-      paymentUrl: isVA ? '' : `https://sandbox.duitku.com/webapi/selectPayment?reference=${reference}`,
-      vaNumber: isVA ? `883208${Math.floor(10000000 + Math.random() * 90000000)}` : undefined,
-      statusCode: '00',
-      statusMessage: 'Success',
-    };
-  }
+  const cfg = getConfig()
 
-  // signature formula: md5(merchantCode + merchantOrderId + paymentAmount + merchantKey)
-  const signatureSource = DUITKU_MERCHANT_CODE + req.merchantOrderId + req.paymentAmount.toString() + DUITKU_MERCHANT_KEY;
-  const signature = crypto.createHash('md5').update(signatureSource).digest('hex');
+  // Signature: MD5(merchantCode + merchantOrderId + paymentAmount + merchantKey)
+  const sigSource = cfg.merchantCode + req.merchantOrderId + req.paymentAmount.toString() + cfg.merchantKey
+  const signature = crypto.createHash('md5').update(sigSource).digest('hex')
 
-  const endpoint = `${BASE_URL}/v2/inquiry`;
+  const endpoint = `${cfg.baseUrl}/v2/inquiry`
   const payload = {
-    merchantCode: DUITKU_MERCHANT_CODE,
+    merchantCode: cfg.merchantCode,
     paymentAmount: req.paymentAmount,
     merchantOrderId: req.merchantOrderId,
     productDetails: req.productDetails,
     email: req.email,
     paymentMethod: req.paymentMethod,
     customerVaName: req.customerVaName,
-    callbackUrl: req.callbackUrl,
-    returnUrl: req.returnUrl,
-    expiryPeriod: req.expiryPeriod || 1440, // default 24 hours
-    signature: signature,
+    callbackUrl: req.callbackUrl || cfg.callbackUrl,
+    returnUrl: req.returnUrl || cfg.returnUrl,
+    expiryPeriod: req.expiryPeriod || cfg.expiryMinutes,
+    signature,
     customerDetail: req.customerDetail,
-  };
-
-  console.log('[Duitku] Creating inquiry at:', endpoint, 'OrderID:', req.merchantOrderId);
-  
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('[Duitku] Create invoice error response:', errText);
-    throw new Error(`Duitku Inquiry HTTP error: ${response.status}`);
   }
 
-  const data = await response.json();
-  
-  // Duitku returns status code in statusCode or similar
-  if (data.statusCode === '00' || data.reference) {
-    return {
-      merchantCode: data.merchantCode || DUITKU_MERCHANT_CODE,
-      reference: data.reference,
-      paymentUrl: data.paymentUrl,
-      vaNumber: data.vaNumber,
-      statusCode: data.statusCode || '00',
-      statusMessage: data.statusMessage || 'Success',
-    };
+  console.log(`[Duitku] Creating invoice for Order: ${req.merchantOrderId}, Amount: ${req.paymentAmount}`)
+
+  const data = await duitkuFetch(endpoint, payload)
+
+  if (!data.reference && data.statusCode !== '00') {
+    throw new Error(data.statusMessage || `Duitku gagal membuat invoice untuk order ${req.merchantOrderId}`)
   }
 
-  throw new Error(data.statusMessage || 'Failed to create Duitku transaction');
+  return {
+    merchantCode: data.merchantCode || cfg.merchantCode,
+    reference: data.reference,
+    paymentUrl: data.paymentUrl || '',
+    vaNumber: data.vaNumber || undefined,
+    statusCode: data.statusCode || '00',
+    statusMessage: data.statusMessage || 'Success',
+  }
 }
 
+// ============================================================
+// Public API: Check Transaction Status
+// ============================================================
 /**
- * Verify if the callback signature matches the calculated signature
- */
-export function verifyDuitkuCallbackSignature(params: {
-  merchantCode: string;
-  amount: string;
-  merchantOrderId: string;
-  signature: string;
-}): boolean {
-  if (DUITKU_MERCHANT_KEY === 'api_key_placeholder') {
-    console.log('[Duitku SIMULATION] Verifying callback signature (always auto-verified in simulation)');
-    return true;
-  }
-
-  // signature formula: md5(merchantCode + amount + merchantOrderId + merchantKey)
-  const signatureSource = params.merchantCode + params.amount + params.merchantOrderId + DUITKU_MERCHANT_KEY;
-  const calculatedSignature = crypto.createHash('md5').update(signatureSource).digest('hex');
-  
-  const match = calculatedSignature === params.signature;
-  if (!match) {
-    console.warn('[Duitku Callback] Signature mismatch. Calculated:', calculatedSignature, 'Received:', params.signature);
-  }
-  return match;
-}
-
-/**
- * Query transaction status directly from Duitku's server
+ * Cek status transaksi langsung ke Duitku.
+ * Signature: MD5(merchantCode + merchantOrderId + merchantKey)
  */
 export async function checkDuitkuTransactionStatus(merchantOrderId: string): Promise<DuitkuStatusResponse> {
-  if (DUITKU_MERCHANT_KEY === 'api_key_placeholder') {
-    console.log('[Duitku SIMULATION] Querying transaction status for Order:', merchantOrderId);
-    // Fetch local order amount if database exists, otherwise use fallback
-    let amount = '149000';
-    try {
-      const dbRes = await dbQuery<any>('SELECT total_amount FROM orders WHERE id = ?', [merchantOrderId]);
-      if (dbRes.length > 0) {
-        amount = String(Math.round(parseFloat(dbRes[0].total_amount)));
-      }
-    } catch (e) {
-      // ignore
-    }
-    return {
-      merchantOrderId: merchantOrderId,
-      reference: `SIM-REF-${Date.now()}`,
-      amount: amount,
-      statusCode: '00', // Success
-      statusMessage: 'Success',
-    };
-  }
+  const cfg = getConfig()
 
-  // signature formula: md5(merchantCode + merchantOrderId + merchantKey)
-  const signatureSource = DUITKU_MERCHANT_CODE + merchantOrderId + DUITKU_MERCHANT_KEY;
-  const signature = crypto.createHash('md5').update(signatureSource).digest('hex');
+  const sigSource = cfg.merchantCode + merchantOrderId + cfg.merchantKey
+  const signature = crypto.createHash('md5').update(sigSource).digest('hex')
 
-  const endpoint = `${BASE_URL}/transactionStatus`;
+  const endpoint = `${cfg.baseUrl}/transactionStatus`
   const payload = {
-    merchantCode: DUITKU_MERCHANT_CODE,
-    merchantOrderId: merchantOrderId,
-    signature: signature,
-  };
-
-  console.log('[Duitku] Checking status at:', endpoint, 'OrderID:', merchantOrderId);
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('[Duitku] Check status error response:', errText);
-    throw new Error(`Duitku Status HTTP error: ${response.status}`);
+    merchantCode: cfg.merchantCode,
+    merchantOrderId,
+    signature,
   }
 
-  const data = await response.json();
+  console.log(`[Duitku] Checking status for Order: ${merchantOrderId}`)
+
+  const data = await duitkuFetch(endpoint, payload)
+
   return {
-    merchantOrderId: data.merchantOrderId,
-    reference: data.reference,
-    amount: data.amount,
-    statusCode: data.statusCode,
-    statusMessage: data.statusMessage,
-  };
+    merchantOrderId: data.merchantOrderId || merchantOrderId,
+    reference: data.reference || '',
+    amount: data.amount || '0',
+    statusCode: data.statusCode || 'XX',
+    statusMessage: data.statusMessage || 'Unknown',
+  }
+}
+
+// ============================================================
+// Callback Signature Verification
+// ============================================================
+/**
+ * Verifikasi signature yang dikirim Duitku di callback webhook.
+ * Formula: MD5(merchantCode + amount + merchantOrderId + merchantKey)
+ *
+ * PENTING: Jangan pernah percaya callback tanpa verifikasi ini.
+ */
+export function verifyDuitkuCallbackSignature(params: {
+  merchantCode: string
+  amount: string
+  merchantOrderId: string
+  signature: string
+}): boolean {
+  const cfg = getConfig()
+
+  const sigSource = params.merchantCode + params.amount + params.merchantOrderId + cfg.merchantKey
+  const calculated = crypto.createHash('md5').update(sigSource).digest('hex')
+
+  const isValid = calculated.toLowerCase() === params.signature.toLowerCase()
+  if (!isValid) {
+    console.warn(
+      `[Duitku Callback] Signature mismatch for Order: ${params.merchantOrderId}. ` +
+      `Expected: ${calculated}, Received: ${params.signature}`
+    )
+  }
+  return isValid
 }

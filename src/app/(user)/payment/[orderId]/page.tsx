@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle2, AlertTriangle, Copy, Check, Clock, RefreshCw, ArrowLeft, ExternalLink } from 'lucide-react'
+import { supabase } from '@/lib/supabaseClient'
 
 const CHANNEL_NAMES: Record<string, string> = {
   BC: 'BCA',
@@ -54,7 +55,36 @@ export default function PaymentInstructionsPage() {
     }
   }
 
-  // Initial load + Polling loop
+  // Supabase Realtime Subscription for instant updates
+  useEffect(() => {
+    if (!orderId) return
+
+    console.log('[Realtime] Subscribing to order status updates for:', orderId)
+    const channel = supabase
+      .channel(`order-status-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`
+        },
+        (payload) => {
+          console.log('[Realtime] Order status update received:', payload.new)
+          if (payload.new && payload.new.status) {
+            checkStatus(false)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [orderId])
+
+  // Initial load + Polling loop (as a backup/fallback)
   useEffect(() => {
     checkStatus()
 
@@ -63,7 +93,7 @@ export default function PaymentInstructionsPage() {
       if (order && order.orderStatus === 'pending') {
         checkStatus()
       }
-    }, 5000)
+    }, 10000) // Increase polling interval to 10 seconds since we have realtime enabled
 
     return () => clearInterval(interval)
   }, [orderId, order?.orderStatus])

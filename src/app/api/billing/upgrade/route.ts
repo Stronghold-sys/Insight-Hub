@@ -80,17 +80,30 @@ export async function POST(req: Request) {
     // 3. Insert payment record (only if amount > 0)
     if (finalAmount > 0) {
       const paymentId = crypto.randomUUID();
+      const orderId = `SIM-ORD-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      
+      // Buat order simulasi terlebih dahulu agar referential integrity terjaga
       await dbQuery(
-        'INSERT INTO payments (id, subscription_id, amount, status, payment_method) VALUES (?, ?, ?, ?, ?)',
-        [paymentId, subscriptionId, finalAmount, 'success', 'QRIS Simulasi']
+        'INSERT INTO orders (id, user_id, plan_id, amount, discount_amount, admin_fee, total_amount, status) VALUES (?, ?, ?, ?, 0, 0, ?, "success")',
+        [orderId, user.id, planId, finalAmount, finalAmount]
       );
 
-      // Create invoice
-      const invoiceId = crypto.randomUUID();
+      await dbQuery(
+        'INSERT INTO payments (id, order_id, subscription_id, amount, status, payment_method) VALUES (?, ?, ?, ?, ?, ?)',
+        [paymentId, orderId, subscriptionId, finalAmount, 'success', 'QRIS Simulasi']
+      );
+
+      // Create invoices (simpan ke tabel invoices dan payment_invoices)
       const invoiceNumber = `INV-${Date.now()}`;
+      
       await dbQuery(
         'INSERT INTO invoices (id, payment_id, invoice_number, pdf_url) VALUES (?, ?, ?, ?)',
-        [invoiceId, paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+        [crypto.randomUUID(), paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+      );
+
+      await dbQuery(
+        'INSERT INTO payment_invoices (id, payment_id, invoice_number, pdf_url) VALUES (?, ?, ?, ?)',
+        [crypto.randomUUID(), paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
       );
     }
 
