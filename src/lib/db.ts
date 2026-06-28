@@ -1,4 +1,4 @@
-import { Client } from 'pg';
+import postgres from 'postgres';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -182,19 +182,16 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
 
   console.log('[DB] Connecting via', isHyperdrive ? 'Hyperdrive' : 'Direct SSL', '→', connectionString.replace(/:[^:@/]+@/, ':***@'));
 
-  // Pakai Client langsung, BUKAN Pool — Hyperdrive sudah handle pooling sendiri!
-  // Pool di atas Hyperdrive menyebabkan deadlock "no open slot in pool"
-  const client = new Client({
-    connectionString,
+  const sqlClient = postgres(connectionString, {
     ssl: isHyperdrive ? false : { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10000,
-    query_timeout: 15000,
+    max: 1,
+    connect_timeout: 10,
+    idle_timeout: 5,
   });
 
-  await client.connect();
   try {
-    const result = await client.query(convertedSql, params);
-    return result.rows.map(normalizeKeys) as T[];
+    const result = await sqlClient.unsafe(convertedSql, params);
+    return result.map(normalizeKeys) as T[];
   } catch (error) {
     console.error('Database Query Error:', error);
     console.error('Original SQL:', sql);
@@ -202,7 +199,7 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     console.error('Parameters:', params);
     throw error;
   } finally {
-    await client.end().catch(() => {});
+    await sqlClient.end().catch(() => {});
   }
 }
 
