@@ -19,6 +19,7 @@ NEXT_PUBLIC_SUPABASE_URL = "https://rghbldixllmhnppwqgbr.supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_do5e7rQ63h9gfYobYm1ndA_vOJ7Zb7o"
 # Duitku non-secret vars (secrets diset via Cloudflare dashboard)
 DUITKU_IS_SANDBOX = "true"
+DUITKU_MERCHANT_CODE = "DS32277"
 DUITKU_CALLBACK_URL = "https://insighthubidn.my.id/api/billing/callback"
 DUITKU_RETURN_URL = "https://insighthubidn.my.id/api/billing/return"
-DUITKU_EXPIRY_MINUTES = "1440"
+DUITKU_EXPIRY_MINUTES = "5"
