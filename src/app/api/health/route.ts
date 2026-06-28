@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Client } from 'pg';
+import postgres from 'postgres';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function GET() {
@@ -53,8 +53,7 @@ export async function GET() {
       }
     }
 
-    const client = new Client({
-      connectionString: cleanedUrl,
+    const sqlClient = postgres(cleanedUrl, {
       ssl: isHyperdrive ? false : { 
         rejectUnauthorized: false,
         servername: servername
@@ -62,9 +61,8 @@ export async function GET() {
     });
 
     try {
-      await client.connect();
-      const res = await client.query('SELECT 1 as val');
-      dbConnection = `Connected successfully (Result: ${JSON.stringify(res.rows)})`;
+      const res = await sqlClient`SELECT 1 as val`;
+      dbConnection = `Connected successfully (Result: ${JSON.stringify(res)})`;
     } catch (err: any) {
       dbConnection = 'Failed';
       dbError = {
@@ -72,7 +70,7 @@ export async function GET() {
         stack: err.stack,
       };
     } finally {
-      await client.end().catch(() => {});
+      await sqlClient.end().catch(() => {});
     }
   } else {
     dbConnection = 'Skipped (no connection string)';

@@ -1,4 +1,4 @@
-import { Client } from 'pg';
+import postgres from 'postgres';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -183,8 +183,11 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     console.warn('[DB] Database URL is UNDEFINED at runtime!');
   }
 
-  const client = new Client({
-    connectionString: dbUrl,
+  if (!dbUrl) {
+    throw new Error('Database connection URL is undefined.');
+  }
+
+  const sqlClient = postgres(dbUrl, {
     ssl: isHyperdrive ? false : { 
       rejectUnauthorized: false,
       servername: servername
@@ -192,9 +195,8 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
   });
   
   try {
-    await client.connect();
-    const result = await client.query(convertedSql, params);
-    return result.rows.map(normalizeKeys) as T[];
+    const result = await sqlClient.unsafe(convertedSql, params);
+    return result.map(normalizeKeys) as T[];
   } catch (error) {
     console.error('Database Query Error (PostgreSQL):', error);
     console.error('Original SQL:', sql);
@@ -202,17 +204,15 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     console.error('Parameters:', params);
 
     // Catat log error ke table error_logs secara asynchronous dengan client baru
-    const logClient = new Client({
-      connectionString: dbUrl,
+    const logSqlClient = postgres(dbUrl, {
       ssl: isHyperdrive ? false : { 
         rejectUnauthorized: false,
         servername: servername
       }
     });
     try {
-      await logClient.connect();
       const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
-      await logClient.query(logSql, [
+      await logSqlClient.unsafe(logSql, [
         error instanceof Error ? error.message : String(error),
         error instanceof Error ? (error.stack || null) : null,
         sql.substring(0, 255)
@@ -220,11 +220,11 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     } catch (err) {
       console.error('Failed to log error to database:', err);
     } finally {
-      await logClient.end().catch(() => {});
+      await logSqlClient.end().catch(() => {});
     }
     throw error;
   } finally {
-    await client.end().catch(() => {});
+    await sqlClient.end().catch(() => {});
   }
 }
 
