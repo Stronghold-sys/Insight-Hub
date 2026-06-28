@@ -97,6 +97,39 @@ try {
     }
   }
 
+  // 5. Generate _routes.json for Cloudflare Pages routing
+  console.log('Generating _routes.json...');
+  const routesJsonPath = path.join(vercelOutputDir, '_routes.json');
+  const excludes = ['/_next/static/*'];
+  if (fs.existsSync(vercelOutputDir)) {
+    const rootFiles = fs.readdirSync(vercelOutputDir);
+    for (const file of rootFiles) {
+      if (
+        file !== '_worker.js' &&
+        file !== '_routes.json' &&
+        file !== '_next' &&
+        file !== 'BUILD_ID' &&
+        file !== '_headers'
+      ) {
+        const filePath = path.join(vercelOutputDir, file);
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) {
+          excludes.push(`/${file}`);
+        } else if (stat.isDirectory()) {
+          excludes.push(`/${file}/*`);
+        }
+      }
+    }
+  }
+
+  const routesJson = {
+    version: 1,
+    include: ['/*'],
+    exclude: excludes
+  };
+  fs.writeFileSync(routesJsonPath, JSON.stringify(routesJson, null, 2));
+  console.log('Generated _routes.json successfully with excludes:', excludes);
+
   console.log('Build pages completed successfully! Output is in the ".vercel/output" directory.');
 } catch (error) {
   console.error('Error during build-vercel execution:', error);
