@@ -26,7 +26,7 @@ export async function GET() {
     const journalCountRes = await dbQuery(
       `SELECT COUNT(*) as count 
        FROM journal_entries je 
-       JOIN journals j ON je.journal_id::uuid = j.id 
+       JOIN journals j ON je.journal_id = j.id::text 
        WHERE j.user_id = ?::uuid`,
       [user.id]
     );
@@ -67,7 +67,7 @@ export async function GET() {
     const recentJournals = await dbQuery(
       `SELECT je.title, je.mood, je.content, je.tag, TO_CHAR(je.created_at, 'YYYY-MM-DD') as date 
        FROM journal_entries je 
-       JOIN journals j ON je.journal_id::uuid = j.id 
+       JOIN journals j ON je.journal_id = j.id::text 
        WHERE j.user_id = ?::uuid 
        ORDER BY je.created_at DESC 
        LIMIT 3`,
@@ -78,7 +78,7 @@ export async function GET() {
     const recentInsights = await dbQuery(
       `SELECT ar.dominant_category, TO_CHAR(ar.completed_at, 'YYYY-MM-DD') as date, a.title 
        FROM analysis_results ar 
-       JOIN assessments a ON ar.assessment_id::uuid = a.id 
+       JOIN assessments a ON ar.assessment_id = a.id::text 
        WHERE ar.user_id = ?::text 
        ORDER BY ar.completed_at DESC 
        LIMIT 3`,

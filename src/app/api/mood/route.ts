@@ -12,7 +12,7 @@ export async function GET() {
 
     // Ambil data mood 30 hari terakhir
     const sql = `
-      SELECT id, mood, energy, stress, note, DATE_FORMAT(date, '%Y-%m-%d') as date
+      SELECT id, mood, energy, stress, note, date
       FROM mood_entries
       WHERE user_id = ?
       ORDER BY date ASC

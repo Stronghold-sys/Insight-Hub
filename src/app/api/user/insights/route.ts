@@ -73,7 +73,7 @@ export async function GET() {
 
     // 4. Ambil mood data 30 hari terakhir
     const moodData = await dbQuery(
-      `SELECT mood, energy, stress, DATE_FORMAT(date, '%Y-%m-%d') as date
+      `SELECT mood, energy, stress, date
        FROM mood_entries
        WHERE user_id = ?
        ORDER BY date ASC
