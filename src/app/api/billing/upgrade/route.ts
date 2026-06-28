@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
 import crypto from 'crypto';
+import { calculateExpirationDate } from '@/lib/dateUtils';
+
 
 export async function POST(req: Request) {
   try {
@@ -65,8 +67,8 @@ export async function POST(req: Request) {
 
     // Start database updates
     const subscriptionId = crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days validity
+    const expiresAt = calculateExpirationDate(new Date(), 30);
+
 
     // 1. Remove old subscriptions
     await dbQuery('DELETE FROM subscriptions WHERE user_id = ?', [user.id]);

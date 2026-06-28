@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS payment_history (
   created_at  TIMESTAMPTZ   DEFAULT NOW()
 );
 
+-- 7b. Tabel payment_status_history (spesifikasi tabel tambahan user)
+CREATE TABLE IF NOT EXISTS payment_status_history (
+  id          BIGSERIAL     PRIMARY KEY,
+  payment_id  VARCHAR(36)   NOT NULL,
+  from_status VARCHAR(50)   NOT NULL,
+  to_status   VARCHAR(50)   NOT NULL,
+  created_at  TIMESTAMPTZ   DEFAULT NOW()
+);
+
 -- 8. Tabel payment_attempts (log attempt request ke Duitku)
 CREATE TABLE IF NOT EXISTS payment_attempts (
   id               VARCHAR(36)   PRIMARY KEY,

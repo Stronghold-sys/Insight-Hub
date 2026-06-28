@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
 import crypto from 'crypto';
+import { formatToWIB } from '@/lib/dateUtils';
+
 
 // Safe query wrapper
 async function safeQuery<T>(query: string, params: any[] = [], fallback: T): Promise<T> {
@@ -43,10 +45,10 @@ export async function GET(request: Request) {
     const conversionRate = Math.round((paidCount / totalUsersCount) * 100);
 
     // Latest subscriptions
-    const latestSubscriptions = await safeQuery(
+    const latestSubscriptions = await safeQuery<any[]>(
       `SELECT s.id, s.plan_id as planId, s.status,
-              DATE_FORMAT(s.starts_at, '%Y-%m-%d') as startDate,
-              DATE_FORMAT(s.ends_at, '%Y-%m-%d') as endDate,
+              s.starts_at as startDate,
+              s.ends_at as endDate,
               u.email
        FROM subscriptions s
        JOIN users u ON s.user_id = u.id
@@ -56,10 +58,10 @@ export async function GET(request: Request) {
     );
 
     // Promo codes
-    const promoCodes = await safeQuery(
+    const promoCodes = await safeQuery<any[]>(
       `SELECT code, discount_pct as discountPercent,
               COALESCE(max_uses, 0) as maxUses, COALESCE(used_count, 0) as usedCount,
-              is_active as isActive, DATE_FORMAT(expires_at, '%Y-%m-%d') as expiresAt
+              is_active as isActive, expires_at as expiresAt
        FROM promo_codes
        ORDER BY created_at DESC`,
       [], []
@@ -67,6 +69,18 @@ export async function GET(request: Request) {
 
     // Pricing plans
     const plans = await safeQuery('SELECT * FROM pricing_plans ORDER BY price ASC', [], []);
+
+    // Format dates to WIB suffix
+    const formattedSubscriptions = (latestSubscriptions || []).map((sub: any) => ({
+      ...sub,
+      startDate: formatToWIB(sub.startDate, 'full'),
+      endDate: formatToWIB(sub.endDate, 'full')
+    }));
+
+    const formattedPromoCodes = (promoCodes || []).map((promo: any) => ({
+      ...promo,
+      expiresAt: promo.expiresAt ? formatToWIB(promo.expiresAt, 'date-only') : '-'
+    }));
 
     return NextResponse.json({
       success: true,
@@ -77,8 +91,8 @@ export async function GET(request: Request) {
         conversionRate,
       },
       planCounts,
-      latestSubscriptions,
-      promoCodes,
+      latestSubscriptions: formattedSubscriptions,
+      promoCodes: formattedPromoCodes,
       plans,
     });
   } catch (error) {

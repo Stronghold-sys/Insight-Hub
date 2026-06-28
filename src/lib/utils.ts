@@ -120,3 +120,45 @@ export function validatePassword(password: string): {
   if (!/[0-9]/.test(password)) errors.push('Harus ada angka')
   return { valid: errors.length === 0, errors }
 }
+
+export function formatPaymentMethod(methodCode: string, channelName?: string): string {
+  const code = (methodCode || '').toUpperCase().trim();
+  const map: Record<string, string> = {
+    'BC': 'BCA Virtual Account',
+    'M2': 'Mandiri Virtual Account',
+    'VA': 'Maybank Virtual Account',
+    'I1': 'BNI Virtual Account',
+    'B1': 'Permata Virtual Account',
+    'BT': 'BTN Virtual Account',
+    'A1': 'BRIsyariah Virtual Account',
+    'AG': 'Artha Graha Virtual Account',
+    'NC': 'Neo Commerce Virtual Account',
+    'BR': 'BRI Virtual Account',
+    'C1': 'CIMB Niaga Virtual Account',
+    'DA': 'Danamon Virtual Account',
+    'GP': 'GoPay',
+    'SP': 'ShopeePay',
+    'O1': 'OVO',
+    'DN': 'DANA',
+    'LA': 'LinkAja',
+    'QR': 'QRIS',
+  };
+  
+  if (map[code]) {
+    return map[code];
+  }
+  
+  if (channelName && channelName !== 'Redirect') {
+    if (channelName === 'Virtual Account') {
+      return 'Virtual Account';
+    }
+    return channelName;
+  }
+  
+  if (code.includes('VA') || code.includes('VIRTUAL')) {
+    return 'Virtual Account';
+  }
+  
+  return code || 'Transfer Bank';
+}
+

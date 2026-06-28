@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { dbQuery } from '@/lib/db'
 import { checkDuitkuTransactionStatus } from '@/lib/duitku'
-import { processSuccessfulPayment, processExpiredPayment, mapDuitkuResultCode } from '@/lib/paymentService'
+import { processSuccessfulPayment, processExpiredPayment, processCancelledPayment, mapDuitkuResultCode, PaymentStatus } from '@/lib/paymentService'
 
 /**
  * Return URL Handler — Dipanggil saat user diarahkan kembali dari Duitku
@@ -34,9 +34,9 @@ export async function GET(request: Request) {
   try {
     // 1. Fetch order dari database — ini sumber kebenaran
     const orderRes = await dbQuery<any>(
-      `SELECT o.id, o.plan_id as "planId", o.status as "orderStatus",
-              o.total_amount as amount, o.user_id as "userId",
-              p.id as "paymentId", p.status as "paymentStatus"
+      `SELECT o.id, o.plan_id as \`planId\`, o.status as \`orderStatus\`,
+              o.total_amount as amount, o.user_id as \`userId\`,
+              p.id as \`paymentId\`, p.status as \`paymentStatus\`
        FROM orders o
        JOIN payments p ON o.id = p.order_id
        WHERE o.id = $1
@@ -52,15 +52,17 @@ export async function GET(request: Request) {
     const orderData = orderRes[0]
 
     // 2. Jika masih pending — cek status terbaru ke Duitku
-    if (orderData.orderStatus === 'pending') {
+    if (orderData.orderStatus && ['pending', 'PENDING'].includes(orderData.orderStatus)) {
       try {
         const duitkuStatus = await checkDuitkuTransactionStatus(merchantOrderId)
         const mappedStatus = mapDuitkuResultCode(duitkuStatus.statusCode)
 
-        if (mappedStatus === 'success') {
+        if (mappedStatus === PaymentStatus.SUCCESS) {
           await processSuccessfulPayment(orderData)
-        } else if (mappedStatus === 'expired' || mappedStatus === 'failed') {
+        } else if (mappedStatus === PaymentStatus.EXPIRED || mappedStatus === PaymentStatus.FAILED) {
           await processExpiredPayment(orderData)
+        } else if (mappedStatus === PaymentStatus.CANCELLED) {
+          await processCancelledPayment(orderData)
         }
         // Jika 'pending' → tidak ada perubahan, redirect ke halaman tunggu
       } catch (err: any) {

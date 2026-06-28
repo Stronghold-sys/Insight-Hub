@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 export default function NotifikasiPage() {
   const [notifs, setNotifs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [userId, setUserId] = useState<string | null>(null)
 
   const fetchNotifications = () => {
     fetch('/api/user/notifications')
@@ -14,6 +15,9 @@ export default function NotifikasiPage() {
       .then(data => {
         if (data.success) {
           setNotifs(data.notifications);
+          if (data.userId) {
+            setUserId(data.userId);
+          }
         }
         setLoading(false);
       })
@@ -25,11 +29,22 @@ export default function NotifikasiPage() {
   }, [])
 
   useEffect(() => {
+    if (!userId) return
+
+    // Use a unique channel name (-page suffix) so it doesn't clash with
+    // the channel already opened in UserLayout for the notification badge.
     const channel = supabase
-      .channel('notifications-live')
+      .channel(`user-notifications-page-${userId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications' },
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        () => {
+          fetchNotifications();
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'refresh' },
         () => {
           fetchNotifications();
         }
@@ -39,7 +54,7 @@ export default function NotifikasiPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [userId])
 
   const markAllRead = async () => {
     try {
@@ -50,7 +65,8 @@ export default function NotifikasiPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setNotifs(prev => prev.map(n => ({ ...n, isRead: 1 })));
+        setNotifs(prev => prev.map(n => ({ ...n, isRead: true })));
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (e) {
       console.error(e);
@@ -67,6 +83,7 @@ export default function NotifikasiPage() {
       const data = await res.json();
       if (data.success) {
         setNotifs(prev => prev.filter(n => n.id !== id));
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (e) {
       console.error(e);
@@ -83,6 +100,7 @@ export default function NotifikasiPage() {
       const data = await res.json();
       if (data.success) {
         setNotifs(prev => prev.map(n => n.id === id ? { ...n, isRead: data.nextStatus } : n));
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (e) {
       console.error(e);

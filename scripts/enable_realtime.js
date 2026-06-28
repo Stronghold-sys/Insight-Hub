@@ -24,6 +24,11 @@ try {
     console.log('Info/Error on payments realtime:', e.message);
   });
 
+  // Try adding notifications table to realtime publication
+  await sql`ALTER PUBLICATION supabase_realtime ADD TABLE notifications`.catch(e => {
+    console.log('Info/Error on notifications realtime:', e.message);
+  });
+
   console.log('✅ Realtime setup completed!');
 } catch (e) {
   console.error('❌ Realtime setup failed:', e.message);

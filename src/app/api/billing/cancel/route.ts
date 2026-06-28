@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
+import { processCancelledPayment } from '@/lib/paymentService';
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -18,7 +20,7 @@ export async function POST(request: Request) {
 
     // Check current status in the database
     const orders = await dbQuery<any>(
-      'SELECT status FROM orders WHERE id = ? AND user_id = ?',
+      'SELECT status FROM orders WHERE id = ? AND user_id::text = ?',
       [orderId, user.id]
     );
 
@@ -26,51 +28,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Pesanan tidak ditemukan' }, { status: 404 });
     }
 
-    const currentStatus = orders[0].status;
+    const currentStatus = orders[0].status || 'PENDING';
 
     // Do not allow cancelling if already paid/success
-    if (currentStatus === 'success' || currentStatus === 'paid') {
+    if (['success', 'paid'].includes(currentStatus.toLowerCase())) {
       return NextResponse.json({ 
         success: false, 
         error: 'Transaksi sudah lunas dibayar, tidak bisa dibatalkan ya.' 
       }, { status: 400 });
     }
 
-    if (currentStatus === 'cancelled') {
+    if (currentStatus.toLowerCase() === 'cancelled') {
       return NextResponse.json({ 
         success: true, 
         message: 'Pesanan ini memang sudah dibatalkan sebelumnya.' 
       });
     }
 
-    // 1. Update order status
-    await dbQuery('UPDATE orders SET status = "cancelled" WHERE id = ?', [orderId]);
-
-    // 2. Update payment status
-    await dbQuery('UPDATE payments SET status = "cancelled" WHERE order_id = ?', [orderId]);
-
     // Get payment ID for status logs
     const payments = await dbQuery<any>('SELECT id FROM payments WHERE order_id = ?', [orderId]);
     if (payments.length > 0) {
       const paymentId = payments[0].id;
-      
-      // Log transition
-      await dbQuery(
-        'INSERT INTO transaction_status_history (payment_id, from_status, to_status) VALUES (?, ?, "cancelled")',
-        [paymentId, currentStatus]
-      );
-
-      // Add payment log
-      await dbQuery(
-        'INSERT INTO payment_logs (id, payment_id, event_type, message) VALUES (UUID(), ?, "payment_cancelled", "Pesanan dibatalkan secara manual oleh user")',
-        [paymentId]
-      );
+      await processCancelledPayment({ id: orderId, paymentId });
+    } else {
+      // Fallback update order status if payment record doesn't exist yet
+      await dbQuery('UPDATE orders SET status = \'CANCELLED\' WHERE id = ?', [orderId]);
     }
 
-    // 3. Log user activity
+    // 3. Log user activity (audit_logs.id bertipe uuid)
     await dbQuery(
-      'INSERT INTO user_activities (user_id, activity_type, description) VALUES (?, "order_cancel", ?)',
-      [user.id, `Membatalkan pesanan pending: ${orderId}`]
+      'INSERT INTO audit_logs (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, NOW())',
+      [crypto.randomUUID(), user.id, 'order_cancel', `Membatalkan pesanan pending: ${orderId}`]
     );
 
     return NextResponse.json({

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
 import crypto from 'crypto';
+import { calculateExpirationDate } from '@/lib/dateUtils';
+
 
 export async function POST(request: Request) {
   try {
@@ -37,8 +39,8 @@ export async function POST(request: Request) {
 
     // 2. Tentukan durasi trial
     const durationDays = planId === 'basic' ? 7 : 14;
-    const endsAt = new Date();
-    endsAt.setDate(endsAt.getDate() + durationDays);
+    const endsAt = calculateExpirationDate(new Date(), durationDays);
+
 
     // 3. Batalkan subskripsi aktif saat ini jika ada (misal status active gratis atau lainnya)
     await dbQuery(

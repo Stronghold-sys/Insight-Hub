@@ -120,7 +120,8 @@ export default function VoiceTalkPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `Curhat ${onboardingForm.topic} - ${onboardingForm.name}`,
-          onboarding: onboardingForm
+          onboarding: onboardingForm,
+          voiceId: selectedVoice
         })
       })
       const data = await res.json()
@@ -128,9 +129,21 @@ export default function VoiceTalkPage() {
         setSessions(prev => [data.session, ...prev])
         setCurrentSession(data.session)
         sessionStorage.setItem('active-curhat-session-id', data.session.id)
-        await fetchMessages(data.session.id)
+        const msgs = await fetchMessages(data.session.id)
         setViewState('CHAT')
         
+        // Auto-play sapaan awal jika ada
+        if (msgs && msgs.length > 0) {
+          const greetingMsg = msgs[0]
+          if (greetingMsg.sender === 'ai') {
+            if (greetingMsg.ai_audio_url) {
+              playAudio(greetingMsg.id, greetingMsg.ai_audio_url)
+            } else if (greetingMsg.ai_text_reply) {
+              playLocalSpeech(greetingMsg.id, greetingMsg.ai_text_reply)
+            }
+          }
+        }
+
         // Reset form
         setOnboardingForm({
           name: '',
@@ -278,7 +291,7 @@ export default function VoiceTalkPage() {
     }
   }
 
-  async function fetchMessages(sessionId: string) {
+  async function fetchMessages(sessionId: string): Promise<Message[] | null> {
     setLoadingMessages(true)
     setErrorMsg('')
     try {
@@ -286,11 +299,14 @@ export default function VoiceTalkPage() {
       const data = await res.json()
       if (data.success) {
         setMessages(data.messages)
+        return data.messages
       } else {
         setErrorMsg(data.message || 'Gagal memuat pesan.')
+        return null
       }
     } catch (err) {
       setErrorMsg('Koneksi bermasalah saat memuat pesan.')
+      return null
     } finally {
       setLoadingMessages(false)
     }
@@ -299,6 +315,11 @@ export default function VoiceTalkPage() {
   // Fetch all sessions on mount
   useEffect(() => {
     const timer = setTimeout(() => {
+      // Preload voices
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.getVoices()
+      }
+
       // Check active plan
       fetch('/api/user/billing')
         .then(res => res.json())
@@ -431,6 +452,8 @@ export default function VoiceTalkPage() {
         
         if (data.aiMessage.ai_audio_url) {
           playAudio(data.aiMessage.id, data.aiMessage.ai_audio_url)
+        } else if (data.aiMessage.ai_text_reply) {
+          playLocalSpeech(data.aiMessage.id, data.aiMessage.ai_text_reply)
         }
 
         if (messages.length === 0) {
@@ -651,6 +674,8 @@ export default function VoiceTalkPage() {
         // Auto play audio balasan baru jika ada
         if (data.aiMessage.ai_audio_url) {
           playAudio(data.aiMessage.id, data.aiMessage.ai_audio_url)
+        } else if (data.aiMessage.ai_text_reply) {
+          playLocalSpeech(data.aiMessage.id, data.aiMessage.ai_text_reply)
         }
       } else {
         setErrorMsg(data.message || 'Waduh, gagal memproses ulang curhat kamu.')

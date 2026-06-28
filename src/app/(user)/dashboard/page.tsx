@@ -254,7 +254,7 @@ function RecentInsights({ insights }: { insights: any[] }) {
 
       {insights.length === 0 ? (
         <div style={{ padding: 20, textAlign: 'center', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: 8 }}>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>Belum ada analisis AI. Selesaikan tes assessment pertama kamu!</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>Belum ada analisis kepribadian. Selesaikan tes assessment pertama kamu!</p>
           <Link href="/assessment" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', padding: '4px 10px', fontSize: 11 }}>Mulai Tes</Link>
         </div>
       ) : (
@@ -547,15 +547,27 @@ function NotificationsCard({ notifications }: { notifications: any[] }) {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {notifications.map(notif => (
-            <div key={notif.id} style={{ padding: 12, borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border-subtle)', position: 'relative' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: notif.priority === 'high' ? 'var(--error)' : 'var(--text-primary)' }}>{notif.title}</span>
-                <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{notif.date}</span>
+          {notifications.map(notif => {
+            const isUnread = notif.isRead === false || notif.isRead === 0 || notif.isRead === 'false';
+            return (
+              <div key={notif.id} style={{
+                padding: 12,
+                borderRadius: 8,
+                background: isUnread ? 'rgba(2,134,195,0.03)' : 'var(--bg)',
+                border: isUnread ? '1px solid rgba(2,134,195,0.2)' : '1px solid var(--border-subtle)',
+                position: 'relative'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {isUnread && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-blue)', display: 'inline-block' }} />}
+                    <span style={{ fontSize: 12.5, fontWeight: isUnread ? 800 : 700, color: notif.priority === 'high' ? 'var(--error)' : 'var(--text-primary)' }}>{notif.title}</span>
+                  </div>
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{notif.date}</span>
+                </div>
+                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{notif.message}</p>
               </div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{notif.message}</p>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

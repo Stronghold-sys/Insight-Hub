@@ -58,7 +58,51 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ success: true, notifications: dbNotifications });
+    // Sanitize notifications to fix undefined invoice numbers and remove technical terms
+    const sanitizedNotifications = []
+    for (const notif of dbNotifications) {
+      let message = notif.message || ''
+      let title = notif.title || ''
+
+      // Fix undefined invoice number
+      if (message.includes('No. Invoice: undefined') || message.includes('No. Invoice: null')) {
+        const inv = await dbQuery<any>(
+          `SELECT i.invoice_number 
+           FROM invoices i
+           JOIN payments p ON i.payment_id = p.id
+           JOIN orders o ON p.order_id = o.id
+           WHERE o.user_id = ?::text AND p.status = 'SUCCESS'
+           ORDER BY i.created_at DESC
+           LIMIT 1`,
+          [user.id]
+        )
+        if (inv.length > 0 && inv[0].invoice_number) {
+          message = message.replace('No. Invoice: undefined', `No. Invoice: ${inv[0].invoice_number}`)
+                           .replace('No. Invoice: null', `No. Invoice: ${inv[0].invoice_number}`)
+        }
+      }
+
+      // Remove technical words
+      const cleanText = (text: string) => {
+        if (!text) return text
+        return text
+          .replace(/duitku/gi, 'sistem pembayaran')
+          .replace(/payment gateway/gi, 'layanan pembayaran')
+          .replace(/database/gi, 'sistem')
+          .replace(/\bai\b/gi, 'sistem cerdas')
+      }
+
+      message = cleanText(message)
+      title = cleanText(title)
+
+      sanitizedNotifications.push({
+        ...notif,
+        title,
+        message
+      })
+    }
+
+    return NextResponse.json({ success: true, notifications: sanitizedNotifications, userId: user.id });
   } catch (error) {
     console.error('Error fetching user notifications:', error);
     return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
@@ -81,12 +125,12 @@ export async function POST(req: Request) {
     if (action === 'mark_read') {
       if (id === 'all') {
         await dbQuery(
-          'UPDATE notifications SET is_read = 1 WHERE user_id = ?',
+          'UPDATE notifications SET is_read = true WHERE user_id = ?',
           [user.id]
         );
       } else {
         await dbQuery(
-          'UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id = ?',
+          'UPDATE notifications SET is_read = true WHERE user_id = ? AND id = ?',
           [user.id, id]
         );
       }
@@ -99,7 +143,7 @@ export async function POST(req: Request) {
         [user.id, id]
       );
       if (current.length > 0) {
-        const nextStatus = current[0].is_read ? 0 : 1;
+        const nextStatus = !current[0].is_read;
         await dbQuery(
           'UPDATE notifications SET is_read = ? WHERE user_id = ? AND id = ?',
           [nextStatus, user.id, id]

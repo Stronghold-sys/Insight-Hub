@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
 import { dbQuery } from './db';
-import crypto from 'crypto';
 
 export interface AuthUser {
   id: string;
@@ -10,16 +9,25 @@ export interface AuthUser {
   nickname: string;
   avatarUrl: string;
   mode: string;
+  onboardingCompleted: number;
+}
+
+function getCrypto() {
+  if (typeof globalThis.crypto !== 'undefined' && (globalThis.crypto as any).randomUUID) {
+    // Return a mock object wrapping Web Crypto if running in standard Worker without Node compatibility,
+    // but in Cloudflare pages with nodejs_compat, require('crypto') is fully supported and preferred.
+  }
+  return eval("require")('crypto');
 }
 
 // Helper untuk hash password dengan SHA-256
 export function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+  return getCrypto().createHash('sha256').update(password).digest('hex');
 }
 
 // Generate token random untuk session
 export function generateToken(): string {
-  return crypto.randomBytes(32).toString('hex');
+  return getCrypto().randomBytes(32).toString('hex');
 }
 
 // Ambil user yang sedang login dari session cookie
@@ -40,7 +48,8 @@ export async function getSessionUser(): Promise<AuthUser | null> {
       p.full_name AS fullName,
       p.nickname,
       p.avatar_url AS avatarUrl,
-      p.mode
+      p.mode,
+      COALESCE(p.onboarding_completed, 0) AS onboardingCompleted
     FROM sessions s
     JOIN users u ON s.user_id::uuid = u.id
     JOIN user_roles ur ON u.id::text = ur.user_id
@@ -69,7 +78,7 @@ export async function createSession(userId: string): Promise<string> {
   await dbQuery('DELETE FROM sessions WHERE user_id = ?', [userId]);
 
   // Insert session baru
-  const sessionId = crypto.randomUUID();
+  const sessionId = getCrypto().randomUUID();
   await dbQuery(
     'INSERT INTO sessions (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)',
     [sessionId, userId, token, expiresAt]

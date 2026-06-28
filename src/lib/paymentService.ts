@@ -8,6 +8,22 @@
  */
 import { dbQuery } from './db'
 import crypto from 'crypto'
+import { calculateExpirationDate } from './dateUtils'
+
+
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  WAITING_PAYMENT = 'WAITING_PAYMENT',
+  PROCESSING = 'PROCESSING',
+  PAID = 'PAID',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+  REFUNDED = 'REFUNDED',
+  CHARGEBACK = 'CHARGEBACK',
+  VOID = 'VOID'
+}
 
 /**
  * Aktivasi subscription, buat invoice, dan kirim notifikasi
@@ -25,17 +41,17 @@ export async function processSuccessfulPayment(order: {
     'SELECT status FROM orders WHERE id = ? LIMIT 1',
     [order.id]
   )
-  if (current.length > 0 && current[0].status === 'success') {
+  if (current.length > 0 && ['success', 'SUCCESS', 'paid', 'PAID'].includes(current[0].status)) {
     console.log(`[PaymentService] Order ${order.id} already processed as success. Skipping.`)
     return
   }
 
   const subscriptionId = crypto.randomUUID()
-  const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + 30) // 30 hari
+  const endsAt = calculateExpirationDate(new Date(), 30)
+
 
   // 1. Hapus subscription lama user
-  await dbQuery('DELETE FROM subscriptions WHERE user_id = ?', [order.userId])
+  await dbQuery('DELETE FROM subscriptions WHERE user_id::text = ?', [order.userId])
 
   // 2. Buat subscription baru
   await dbQuery(
@@ -46,42 +62,59 @@ export async function processSuccessfulPayment(order: {
 
   // 3. Update payment — link ke subscription
   await dbQuery(
-    `UPDATE payments SET status = 'success', paid_at = NOW(), subscription_id = ? WHERE id = ?`,
+    `UPDATE payments SET status = 'SUCCESS', paid_at = NOW(), subscription_id = ? WHERE id = ?`,
     [subscriptionId, order.paymentId]
   )
 
   // 4. Update order status
-  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['success', order.id])
+  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['SUCCESS', order.id])
 
   // 5. Buat invoice (Simpan ke invoices dan payment_invoices untuk kompatibilitas penuh)
-  const invoiceNumber = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
-  const invoiceId = crypto.randomUUID()
-  
-  // Simpan ke invoices (dipakai oleh api/user/billing)
-  await dbQuery(
-    `INSERT INTO invoices (id, payment_id, invoice_number, pdf_url, created_at)
-     VALUES (?, ?, ?, ?, NOW())`,
-    [invoiceId, order.paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+  // Check if invoice already exists
+  const existingInv = await dbQuery<any>(
+    'SELECT invoice_number FROM invoices WHERE payment_id = ? LIMIT 1',
+    [order.paymentId]
   )
+  let invoiceNumber = ''
+  if (existingInv.length > 0) {
+    invoiceNumber = existingInv[0].invoice_number || existingInv[0].invoiceNumber
+  } else {
+    invoiceNumber = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+    const invoiceId = crypto.randomUUID()
+    
+    // Simpan ke invoices (dipakai oleh api/user/billing)
+    await dbQuery(
+      `INSERT INTO invoices (id, payment_id, invoice_number, pdf_url, created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [invoiceId, order.paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+    )
 
-  // Simpan ke payment_invoices (sesuai spesifikasi tabel user)
-  await dbQuery(
-    `INSERT INTO payment_invoices (id, payment_id, invoice_number, pdf_url, created_at)
-     VALUES (?, ?, ?, ?, NOW())`,
-    [crypto.randomUUID(), order.paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
-  )
+    // Simpan ke payment_invoices (sesuai spesifikasi tabel user)
+    await dbQuery(
+      `INSERT INTO payment_invoices (id, payment_id, invoice_number, pdf_url, created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [crypto.randomUUID(), order.paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+    )
+  }
 
   // 6. Log status transition ke payment_history (sesuai spesifikasi tabel user)
   await dbQuery(
     `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
-     VALUES (?, 'pending', 'success', NOW())`,
+     VALUES (?, 'PENDING', 'SUCCESS', NOW())`,
+    [order.paymentId]
+  )
+
+  // 6b. Log status transition ke payment_status_history
+  await dbQuery(
+    `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, 'PENDING', 'SUCCESS', NOW())`,
     [order.paymentId]
   )
 
   // 7. Log status transition ke transaction_status_history (compatibility)
   await dbQuery(
     `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
-     VALUES (?, 'pending', 'success', NOW())`,
+     VALUES (?, 'PENDING', 'SUCCESS', NOW())`,
     [order.paymentId]
   )
 
@@ -108,6 +141,9 @@ export async function processSuccessfulPayment(order: {
     ]
   )
 
+  const friendlyPlan = (order.planId || '').toUpperCase() === 'BASIC' ? 'Basic' : (order.planId || '').toUpperCase() === 'COUPLE' ? 'Couple Plan' : 'Premium'
+  const successMessage = `Selamat! Paket ${friendlyPlan} kamu sudah aktif selama 30 hari. No. Invoice: ${invoiceNumber}.`
+
   // 10. Notifikasi ke user (payment_notifications - sesuai spesifikasi tabel user)
   await dbQuery(
     `INSERT INTO payment_notifications (id, user_id, payment_id, title, message, is_read, created_at)
@@ -117,7 +153,7 @@ export async function processSuccessfulPayment(order: {
       order.userId,
       order.paymentId,
       'Pembayaran Berhasil! 🎉',
-      `Selamat! Paket Premium kamu sudah aktif selama 30 hari. No. Invoice: ${invoiceNumber}.`
+      successMessage
     ]
   )
 
@@ -129,7 +165,7 @@ export async function processSuccessfulPayment(order: {
       crypto.randomUUID(),
       order.userId,
       'Pembayaran Berhasil! 🎉',
-      `Selamat! Paket Premium kamu sudah aktif selama 30 hari. No. Invoice: ${invoiceNumber}.`,
+      successMessage,
       'high'
     ]
   )
@@ -148,24 +184,32 @@ export async function processExpiredPayment(order: {
     'SELECT status FROM orders WHERE id = ? LIMIT 1',
     [order.id]
   )
-  if (current.length > 0 && ['expired', 'failed', 'cancelled'].includes(current[0].status)) {
+  if (current.length > 0 && ['expired', 'EXPIRED', 'failed', 'FAILED', 'cancelled', 'CANCELLED'].includes(current[0].status)) {
     console.log(`[PaymentService] Order ${order.id} already in terminal state: ${current[0].status}. Skipping.`)
     return
   }
 
-  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['expired', order.id])
-  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['expired', order.paymentId])
+  const fromStatus = current[0]?.status || 'PENDING'
+
+  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['EXPIRED', order.id])
+  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['EXPIRED', order.paymentId])
 
   await dbQuery(
     `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
-     VALUES (?, 'pending', 'expired', NOW())`,
-    [order.paymentId]
+     VALUES (?, ?, 'EXPIRED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'EXPIRED', NOW())`,
+    [order.paymentId, fromStatus]
   )
 
   await dbQuery(
     `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
-     VALUES (?, 'pending', 'expired', NOW())`,
-    [order.paymentId]
+     VALUES (?, ?, 'EXPIRED', NOW())`,
+    [order.paymentId, fromStatus]
   )
 
   await dbQuery(
@@ -192,17 +236,31 @@ export async function processCancelledPayment(order: {
     'SELECT status FROM orders WHERE id = ? LIMIT 1',
     [order.id]
   )
-  if (current.length > 0 && ['expired', 'failed', 'cancelled', 'success'].includes(current[0].status)) {
+  if (current.length > 0 && ['expired', 'EXPIRED', 'failed', 'FAILED', 'cancelled', 'CANCELLED', 'success', 'SUCCESS', 'paid', 'PAID'].includes(current[0].status)) {
     return
   }
 
-  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['cancelled', order.id])
-  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['cancelled', order.paymentId])
+  const fromStatus = current[0]?.status || 'PENDING'
+
+  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['CANCELLED', order.id])
+  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['CANCELLED', order.paymentId])
 
   await dbQuery(
     `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
-     VALUES (?, 'pending', 'cancelled', NOW())`,
-    [order.paymentId]
+     VALUES (?, ?, 'CANCELLED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'CANCELLED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
+     VALUES (?, ?, 'CANCELLED', NOW())`,
+    [order.paymentId, fromStatus]
   )
 
   await dbQuery(
@@ -217,13 +275,113 @@ export async function processCancelledPayment(order: {
 }
 
 /**
+ * Tandai order sebagai refunded (idempotent).
+ */
+export async function processRefundedPayment(order: {
+  id: string
+  paymentId: string
+  userId: string
+}): Promise<void> {
+  const current = await dbQuery<any>(
+    'SELECT status FROM orders WHERE id = ? LIMIT 1',
+    [order.id]
+  )
+  if (current.length > 0 && ['refunded', 'REFUNDED'].includes(current[0].status)) {
+    return
+  }
+
+  const fromStatus = current[0]?.status || 'SUCCESS'
+
+  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['REFUNDED', order.id])
+  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['REFUNDED', order.paymentId])
+
+  await dbQuery(
+    `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'REFUNDED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'REFUNDED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
+     VALUES (?, ?, 'REFUNDED', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    'INSERT INTO audit_logs (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, NOW())',
+    [crypto.randomUUID(), order.userId, 'payment_refunded', `Order ${order.id} telah di-refund.`]
+  )
+
+  await dbQuery(
+    `INSERT INTO payment_logs (id, payment_id, event_type, message, created_at)
+     VALUES (?, ?, 'payment_refunded', ?, NOW())`,
+    [crypto.randomUUID(), order.paymentId, `Pembayaran untuk order ${order.id} telah direfund.`]
+  )
+}
+
+/**
+ * Tandai order sebagai chargeback (idempotent).
+ */
+export async function processChargebackPayment(order: {
+  id: string
+  paymentId: string
+  userId: string
+}): Promise<void> {
+  const current = await dbQuery<any>(
+    'SELECT status FROM orders WHERE id = ? LIMIT 1',
+    [order.id]
+  )
+  if (current.length > 0 && ['chargeback', 'CHARGEBACK'].includes(current[0].status)) {
+    return
+  }
+
+  const fromStatus = current[0]?.status || 'SUCCESS'
+
+  await dbQuery('UPDATE orders SET status = ? WHERE id = ?', ['CHARGEBACK', order.id])
+  await dbQuery('UPDATE payments SET status = ? WHERE id = ?', ['CHARGEBACK', order.paymentId])
+
+  // Nonaktifkan subscription karena chargeback
+  await dbQuery("UPDATE subscriptions SET status = 'expired' WHERE user_id::text = ?", [order.userId])
+
+  await dbQuery(
+    `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'CHARGEBACK', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+     VALUES (?, ?, 'CHARGEBACK', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
+     VALUES (?, ?, 'CHARGEBACK', NOW())`,
+    [order.paymentId, fromStatus]
+  )
+
+  await dbQuery(
+    'INSERT INTO audit_logs (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, NOW())',
+    [crypto.randomUUID(), order.userId, 'payment_chargeback', `Order ${order.id} mengalami chargeback. Subscription dinonaktifkan.`]
+  )
+}
+
+/**
  * Map Duitku resultCode ke status internal
  */
-export function mapDuitkuResultCode(resultCode: string): 'success' | 'expired' | 'pending' | 'failed' {
+export function mapDuitkuResultCode(resultCode: string): PaymentStatus {
   switch (resultCode) {
-    case '00': return 'success'
-    case '01': return 'pending'
-    case '02': return 'expired'
-    default:   return 'failed'
+    case '00': return PaymentStatus.SUCCESS
+    case '01': return PaymentStatus.PENDING
+    case '02': return PaymentStatus.EXPIRED
+    default:   return PaymentStatus.FAILED
   }
 }
+

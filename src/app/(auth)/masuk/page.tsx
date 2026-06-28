@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react'
 import { validateEmail } from '@/lib/utils'
+import { supabase } from '@/lib/supabaseClient'
 
 function LoginContent() {
   const searchParams = useSearchParams()
@@ -38,6 +39,14 @@ function LoginContent() {
       const data = await res.json();
       setLoading(false);
       if (res.ok && data.success) {
+        // Sync Supabase Auth session on the client-side
+        if (data.session) {
+          await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token
+          });
+        }
+
         const redirectUrl = searchParams.get('redirect');
         if (data.user.role === 'admin') {
           window.location.href = '/admin';

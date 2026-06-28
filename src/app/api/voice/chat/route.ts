@@ -1,10 +1,26 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
-import crypto from 'crypto';
 import { getUserActivePlan, checkFeatureAccess } from '@/lib/accessControl';
 import { uploadToSupabase, fetchBufferFromUrl } from '@/lib/supabaseAdmin';
 import { generateEdgeTTSBuffer } from '@/lib/tts';
+
+function getRandomUUID(): string {
+  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  try {
+    const nodeCrypto = eval("require")('crypto');
+    if (nodeCrypto && nodeCrypto.randomUUID) {
+      return nodeCrypto.randomUUID();
+    }
+  } catch (e) {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 
@@ -607,7 +623,7 @@ async function runMultimodalPipeline(
   user: any,
   voiceId: string
 ) {
-  const logId = crypto.randomUUID();
+  const logId = getRandomUUID();
   const startTime = Date.now();
 
   await dbQuery(
@@ -687,7 +703,7 @@ async function runMultimodalPipeline(
     safety_score = 0.1;
     await dbQuery(
       `INSERT INTO prompt_injection_events (id, session_id, user_id, input_text, detected_pattern, action_taken) VALUES (?, ?, ?, ?, ?, ?)`,
-      [crypto.randomUUID(), sessionId, user.id, unifiedInput.slice(0, 1000), injection.pattern, 'refused_with_genz_style']
+      [getRandomUUID(), sessionId, user.id, unifiedInput.slice(0, 1000), injection.pattern, 'refused_with_genz_style']
     );
 
     const voiceSettings: Record<string, number> = { eve: 0, ara: 1, rex: 2, sal: 3, leo: 4 };
@@ -720,7 +736,7 @@ async function runMultimodalPipeline(
         safety_score = 0.3;
         await dbQuery(
           `INSERT INTO safety_flags (id, message_id, flag_type, reason, safety_score) VALUES (?, ?, ?, ?, ?)`,
-          [crypto.randomUUID(), userMessageId, 'topic_drift_detected', 'System generated technical code reply', safety_score]
+          [getRandomUUID(), userMessageId, 'topic_drift_detected', 'System generated technical code reply', safety_score]
         );
       }
 
@@ -756,25 +772,25 @@ async function runMultimodalPipeline(
   if (inputs.messageText) {
     await dbQuery(
       `INSERT INTO text_messages (id, message_id, content) VALUES (?, ?, ?)`,
-      [crypto.randomUUID(), userMessageId, inputs.messageText]
+      [getRandomUUID(), userMessageId, inputs.messageText]
     );
   }
 
   if (inputs.audioBuffer) {
     await dbQuery(
       `INSERT INTO voice_messages (id, message_id, user_id, audio_url, duration, file_size, format) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [crypto.randomUUID(), userMessageId, user.id, inputs.audioUrl, null, inputs.audioSize, inputs.audioExt]
+      [getRandomUUID(), userMessageId, user.id, inputs.audioUrl, null, inputs.audioSize, inputs.audioExt]
     );
     await dbQuery(
       `INSERT INTO voice_transcripts (id, voice_message_id, transcript_text, confidence, status) VALUES (?, ?, ?, ?, ?)`,
-      [crypto.randomUUID(), userMessageId, transcription, 0.95, 'completed']
+      [getRandomUUID(), userMessageId, transcription, 0.95, 'completed']
     );
   }
 
   if (inputs.imageBuffer) {
     await dbQuery(
       `INSERT INTO image_messages (id, message_id, image_url, analysis_text) VALUES (?, ?, ?, ?)`,
-      [crypto.randomUUID(), userMessageId, inputs.imageUrl, imageAnalysis]
+      [getRandomUUID(), userMessageId, inputs.imageUrl, imageAnalysis]
     );
   }
 
@@ -801,26 +817,28 @@ async function runMultimodalPipeline(
   );
 
   // 8. Generate AI TTS (Edge Neural TTS)
-  const aiMessageId = crypto.randomUUID();
-  const aiReplyId = crypto.randomUUID();
+  const aiMessageId = getRandomUUID();
+  const aiReplyId = getRandomUUID();
   const ttsFileName = `${aiReplyId}.mp3`;
   let aiAudioUrl: string | null = null;
   let ttsSuccess = false;
 
-  const ttsLogId = crypto.randomUUID();
+  const ttsLogId = getRandomUUID();
   await dbQuery(
     `INSERT INTO processing_logs (id, session_id, step, status) VALUES (?, ?, ?, ?)`,
     [ttsLogId, sessionId, 'tts_generation', 'processing']
   );
 
   const ttsStart = Date.now();
+  let ttsError = 'Edge TTS failed';
   try {
     const voiceConfig = voiceConfigs[voiceId] || voiceConfigs.eve;
     const ttsBuffer = await generateEdgeTTSBuffer(reply, voiceConfig);
     aiAudioUrl = await uploadToSupabase('insight-hub', `tts/${ttsFileName}`, ttsBuffer, 'audio/mpeg');
     ttsSuccess = true;
-  } catch (e) {
+  } catch (e: any) {
     console.error('[Edge TTS] Error generating TTS:', e);
+    ttsError = e?.message || String(e);
   }
 
   if (ttsSuccess && aiAudioUrl) {
@@ -830,16 +848,16 @@ async function runMultimodalPipeline(
     );
     await dbQuery(
       `INSERT INTO tts_outputs (id, reply_id, audio_url, text) VALUES (?, ?, ?, ?)`,
-      [crypto.randomUUID(), aiReplyId, aiAudioUrl, reply]
+      [getRandomUUID(), aiReplyId, aiAudioUrl, reply]
     );
     await dbQuery(
       `INSERT INTO ai_audio_replies (id, reply_id, audio_url, duration) VALUES (?, ?, ?, NULL)`,
-      [crypto.randomUUID(), aiReplyId, aiAudioUrl]
+      [getRandomUUID(), aiReplyId, aiAudioUrl]
     );
   } else {
     await dbQuery(
       `UPDATE processing_logs SET status = 'failed', error_message = ? WHERE id = ?`,
-      [String('Edge TTS failed'), ttsLogId]
+      [ttsError, ttsLogId]
     );
   }
 
@@ -873,7 +891,7 @@ async function runMultimodalPipeline(
   await dbQuery(
     `INSERT INTO hallucination_checks (id, message_id, text_to_check, hallucination_score, notes) VALUES (?, ?, ?, ?, ?)`,
     [
-      crypto.randomUUID(),
+      getRandomUUID(),
       aiMessageId,
       reply,
       1.0 - confidence_score,
@@ -884,7 +902,7 @@ async function runMultimodalPipeline(
   // Moderation Log
   await dbQuery(
     `INSERT INTO moderation_logs (id, user_id, content_type, flagged, categories) VALUES (?, ?, ?, ?, ?)`,
-    [crypto.randomUUID(), user.id, 'multimodal_input', isInjectionDetected ? 1 : 0, classification]
+    [getRandomUUID(), user.id, 'multimodal_input', isInjectionDetected ? 1 : 0, classification]
   );
 
   // Title update
@@ -982,7 +1000,7 @@ export async function POST(request: Request) {
           return NextResponse.json({ message: 'Pesan tidak ditemukan' }, { status: 404 });
         }
 
-        const reportId = crypto.randomUUID();
+        const reportId = getRandomUUID();
         await dbQuery(
           `INSERT INTO user_reports (id, user_id, message_id, reason, details) VALUES (?, ?, ?, ?, ?)`,
           [reportId, user.id, messageId, reportReason || 'user_reported', 'User reported response.']
@@ -1141,7 +1159,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ message: 'Ukuran file audio terlalu besar (maksimal 10MB)' }, { status: 400 });
       }
       audioExt = audioFile.name?.split('.').pop() || 'webm';
-      const userAudioId = crypto.randomUUID();
+      const userAudioId = getRandomUUID();
       const voiceFileName = `${userAudioId}.${audioExt}`;
       audioMime = audioFile.type || 'audio/webm';
       audioSize = audioFile.size;
@@ -1171,7 +1189,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ message: 'Format file gambar tidak didukung' }, { status: 400 });
       }
       imageExt = imageFile.name?.split('.').pop() || 'jpg';
-      const userImageId = crypto.randomUUID();
+      const userImageId = getRandomUUID();
       const imageFileName = `${userImageId}.${imageExt}`;
       imageMime = imageFile.type;
       imageSize = imageFile.size;
@@ -1195,7 +1213,7 @@ export async function POST(request: Request) {
       messageType = 'image';
     }
 
-    const userMessageId = crypto.randomUUID();
+    const userMessageId = getRandomUUID();
     activeUserMessageId = userMessageId;
     await dbQuery(
       `INSERT INTO conversation_messages 

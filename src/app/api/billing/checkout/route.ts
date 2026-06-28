@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 import { dbQuery } from '@/lib/db'
-import { createDuitkuInvoice } from '@/lib/duitku'
+import { createDuitkuInvoice, checkDuitkuTransactionStatus } from '@/lib/duitku'
+import { processSuccessfulPayment, processExpiredPayment, processCancelledPayment, PaymentStatus, mapDuitkuResultCode } from '@/lib/paymentService'
 import crypto from 'crypto'
 
 export async function POST(request: Request) {
@@ -84,27 +85,75 @@ export async function POST(request: Request) {
     }
 
     // 3. Cegah double pending order untuk paket yang sama
-    const pendingOrders = await dbQuery<any>(
-      `SELECT o.id FROM orders o
+    const lastPending = await dbQuery<any>(
+      `SELECT o.id as \`orderId\`, o.status as \`orderStatus\`, p.id as \`paymentId\`, p.status as \`paymentStatus\`, 
+              p.expires_at as \`expiresAt\`, p.payment_url as \`paymentUrl\`, p.va_number as \`vaNumber\`, p.payment_method as channel, p.reference, p.amount
+       FROM orders o
        JOIN payments p ON o.id = p.order_id
-       WHERE o.user_id = ? AND o.plan_id = ? AND o.status = 'pending'
-         AND p.expires_at > NOW()
+       WHERE o.user_id = ? AND o.plan_id = ? AND (LOWER(o.status) = 'pending' OR LOWER(p.status) = 'pending')
+       ORDER BY o.created_at DESC
        LIMIT 1`,
       [user.id, planId]
     )
-    if (pendingOrders.length > 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Kamu sudah punya transaksi pending untuk paket ini. Selesaikan atau tunggu expired.',
-        orderId: pendingOrders[0].id
-      }, { status: 400 })
+
+    if (lastPending.length > 0) {
+      const item = lastPending[0]
+      const expiresAtDate = new Date(item.expiresAt)
+      let isStillPending = true
+
+      // Reconcile status with Duitku
+      try {
+        const checkRes = await checkDuitkuTransactionStatus(item.orderId)
+        const mapped = mapDuitkuResultCode(checkRes.statusCode)
+
+        if (mapped === PaymentStatus.SUCCESS) {
+          await processSuccessfulPayment({
+            id: item.orderId,
+            paymentId: item.paymentId,
+            planId,
+            userId: user.id,
+            amount: item.amount
+          })
+          isStillPending = false
+        } else if (mapped === PaymentStatus.EXPIRED || mapped === PaymentStatus.FAILED) {
+          await processExpiredPayment({ id: item.orderId, paymentId: item.paymentId })
+          isStillPending = false
+        } else if (mapped === PaymentStatus.CANCELLED) {
+          await processCancelledPayment({ id: item.orderId, paymentId: item.paymentId })
+          isStillPending = false
+        }
+      } catch (err: any) {
+        console.warn(`[Checkout Sync] Failed to sync status with Duitku for order ${item.orderId}:`, err.message)
+      }
+
+      // Check if expired locally if still pending
+      if (isStillPending && expiresAtDate < new Date()) {
+        await processExpiredPayment({ id: item.orderId, paymentId: item.paymentId })
+        isStillPending = false
+      }
+
+      if (isStillPending) {
+        return NextResponse.json({
+          success: false,
+          error: 'Kamu sudah punya transaksi pending untuk paket ini.',
+          orderId: item.orderId,
+          payment: {
+            amount: item.amount,
+            vaNumber: item.vaNumber,
+            paymentUrl: item.paymentUrl,
+            reference: item.reference,
+            channel: item.channel,
+            expiresAt: expiresAtDate.toISOString()
+          }
+        }, { status: 400 })
+      }
     }
 
     // 4. Buat Order dan Order Items
     const orderId = `ORD-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
     await dbQuery(
       `INSERT INTO orders (id, user_id, plan_id, amount, discount_amount, admin_fee, total_amount, status, coupon_code, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, NOW())`,
       [orderId, user.id, planId, basePrice, discount, adminFee, finalAmount, promoCode || null]
     )
 
@@ -165,7 +214,7 @@ export async function POST(request: Request) {
     await dbQuery(
       `INSERT INTO payments (id, order_id, amount, status, payment_method, payment_channel,
         reference, va_number, payment_url, expires_at, created_at)
-       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NOW())`,
+       VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, NOW())`,
       [
         paymentId,
         orderId,
@@ -177,6 +226,20 @@ export async function POST(request: Request) {
         duitkuResponse.paymentUrl || null,
         expiresAt,
       ]
+    )
+
+    // 6b. Simpan Invoice Record (Permanent, Pending state)
+    const invoiceNumber = `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+    const invoiceId = crypto.randomUUID()
+    await dbQuery(
+      `INSERT INTO invoices (id, payment_id, invoice_number, pdf_url, created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [invoiceId, paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
+    )
+    await dbQuery(
+      `INSERT INTO payment_invoices (id, payment_id, invoice_number, pdf_url, created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [crypto.randomUUID(), paymentId, invoiceNumber, `/invoices/${invoiceNumber}.pdf`]
     )
 
     // 7. Log checkout
@@ -193,8 +256,18 @@ export async function POST(request: Request) {
 
     // 8. Status history
     await dbQuery(
-      `INSERT INTO transaction_status_history (payment_id, from_status, to_status, created_at)
-       VALUES (?, 'none', 'pending', NOW())`,
+      `INSERT INTO payment_history (payment_id, from_status, to_status, created_at)
+       VALUES (?, 'none', 'PENDING', NOW())`,
+      [paymentId]
+    )
+    await dbQuery(
+      `INSERT INTO payment_status_history (payment_id, from_status, to_status, created_at)
+       VALUES (?, 'none', 'PENDING', NOW())`,
+      [paymentId]
+    )
+    await dbQuery(
+      `INSERT INTO transaction_status_history (payment_id, from_status, to_status, changed_at)
+       VALUES (?, 'none', 'PENDING', NOW())`,
       [paymentId]
     )
 

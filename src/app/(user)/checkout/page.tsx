@@ -440,7 +440,7 @@ export default function CheckoutPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                 <div>
                   <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Pilih Metode Pembayaran</h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>Daftar metode pembayaran aman dari Duitku.</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>Daftar metode pembayaran aman dan instan.</p>
                 </div>
 
                 {/* SEARCH INPUT */}
@@ -466,6 +466,8 @@ export default function CheckoutPage() {
                     <button 
                       onClick={() => setSearchQuery('')}
                       style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                      aria-label="Hapus pencarian"
+                      title="Hapus pencarian"
                     >
                       <X size={12} />
                     </button>
@@ -476,7 +478,7 @@ export default function CheckoutPage() {
               {loadingMethods ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 0', gap: 12 }}>
                   <Loader2 size={32} className="animate-spin" color="var(--brand-blue)" />
-                  <p style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>Memuat metode pembayaran Duitku...</p>
+                  <p style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>Memuat metode pembayaran...</p>
                 </div>
               ) : (
                 <div className="payment-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>

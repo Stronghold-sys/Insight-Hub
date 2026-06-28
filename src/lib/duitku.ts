@@ -166,10 +166,10 @@ export async function getDuitkuPaymentMethods(amount: number): Promise<DuitkuPay
   }
 
   return data.paymentFee.map((item: any) => ({
-    name: item.name,
+    name: item.paymentName || item.name || '',
     paymentMethod: item.paymentMethod,
     paymentImage: item.paymentImage || '',
-    totalFee: item.totalFee || 0,
+    totalFee: parseInt(String(item.totalFee), 10) || 0,
   }))
 }
 

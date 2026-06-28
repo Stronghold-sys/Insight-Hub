@@ -1,10 +1,26 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { dbQuery } from '@/lib/db';
-import crypto from 'crypto';
 import { getUserActivePlan, checkFeatureAccess } from '@/lib/accessControl';
 import { uploadToSupabase } from '@/lib/supabaseAdmin';
 import { generateEdgeTTSBuffer } from '@/lib/tts';
+
+function getRandomUUID(): string {
+  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  try {
+    const nodeCrypto = eval("require")('crypto');
+    if (nodeCrypto && nodeCrypto.randomUUID) {
+      return nodeCrypto.randomUUID();
+    }
+  } catch (e) {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 // GET /api/voice/session - Ambil semua sesi curhat milik user
 export async function GET() {
@@ -97,7 +113,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { onboarding, title } = body;
+    const { onboarding, title, voiceId } = body;
 
     if (!onboarding) {
       return NextResponse.json({ message: 'Data onboarding wajib diisi' }, { status: 400 });
@@ -125,7 +141,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Preferensi respon wajib diisi (santai/serius)' }, { status: 400 });
     }
 
-    const sessionId = crypto.randomUUID();
+    const sessionId = getRandomUUID();
     const sessionTitle = title || `Curhat ${topic} - ${name}`;
 
     // 1. Simpan sesi ke sistem dengan metadata onboarding
@@ -136,16 +152,24 @@ export async function POST(request: Request) {
 
     // 2. Buat sapaan awal
     const greetingText = generateGreetingText(name, status);
-    const aiMessageId = crypto.randomUUID();
-    const aiReplyId = crypto.randomUUID();
+    const aiMessageId = getRandomUUID();
+    const aiReplyId = getRandomUUID();
     const ttsFileName = `${aiReplyId}.mp3`;
     let aiAudioUrl: string | null = null;
 
     // Generate Edge TTS untuk greeting awal ke buffer, lalu upload ke Supabase
     try {
-      const voiceConfig = aiResponsePreference === 'serius' 
-        ? { voice: 'id-ID-ArdiNeural', rate: '-5%', pitch: 'default' } // Sal (Laki-laki hangat)
-        : { voice: 'id-ID-GadisNeural', rate: 'default', pitch: 'default' }; // Eve (Perempuan lembut)
+      const voiceConfigs: Record<string, { voice: string; rate: string; pitch: string }> = {
+        eve: { voice: 'id-ID-GadisNeural', rate: 'default', pitch: 'default' },
+        ara: { voice: 'id-ID-GadisNeural', rate: '+10%', pitch: '+15%' },
+        rex: { voice: 'id-ID-ArdiNeural', rate: '+5%', pitch: '-10%' },
+        sal: { voice: 'id-ID-ArdiNeural', rate: '-5%', pitch: 'default' },
+        leo: { voice: 'id-ID-ArdiNeural', rate: '+10%', pitch: '+5%' }
+      };
+
+      const voiceConfig = voiceConfigs[voiceId] || (aiResponsePreference === 'serius' 
+        ? voiceConfigs.sal 
+        : voiceConfigs.eve);
 
       const audioBuffer = await generateEdgeTTSBuffer(greetingText, voiceConfig);
       aiAudioUrl = await uploadToSupabase('insight-hub', `tts/${ttsFileName}`, audioBuffer, 'audio/mpeg');
@@ -181,11 +205,11 @@ export async function POST(request: Request) {
     if (finalAiAudioUrl) {
       await dbQuery(
         `INSERT INTO tts_outputs (id, reply_id, audio_url, text) VALUES (?, ?, ?, ?)`,
-        [crypto.randomUUID(), aiReplyId, finalAiAudioUrl, greetingText]
+        [getRandomUUID(), aiReplyId, finalAiAudioUrl, greetingText]
       );
       await dbQuery(
         `INSERT INTO ai_audio_replies (id, reply_id, audio_url, duration) VALUES (?, ?, ?, NULL)`,
-        [crypto.randomUUID(), aiReplyId, finalAiAudioUrl]
+        [getRandomUUID(), aiReplyId, finalAiAudioUrl]
       ).catch(() => {});
     }
 

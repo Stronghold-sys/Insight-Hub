@@ -108,15 +108,59 @@ export async function GET() {
     );
     const lastChat = lastChatRes[0] || null;
 
-    // 11. Get recent unread notifications
-    const recentNotifications = await dbQuery(
-      `SELECT id, title, message, priority, TO_CHAR(created_at, 'YYYY-MM-DD') as date
+    // 11. Get recent notifications (latest 4 notifications)
+    const rawNotifications = await dbQuery<any>(
+      `SELECT id, title, message, priority, is_read as isRead, TO_CHAR(created_at, 'YYYY-MM-DD') as date
        FROM notifications
-       WHERE user_id = ?::uuid AND is_read = false
+       WHERE user_id = ?::uuid
        ORDER BY created_at DESC
-       LIMIT 2`,
+       LIMIT 4`,
       [user.id]
     );
+
+    // Sanitize notifications
+    const recentNotifications = [];
+    for (const notif of rawNotifications) {
+      let message = notif.message || '';
+      let title = notif.title || '';
+
+      // Fix undefined invoice number
+      if (message.includes('No. Invoice: undefined') || message.includes('No. Invoice: null')) {
+        const inv = await dbQuery<any>(
+          `SELECT i.invoice_number 
+           FROM invoices i
+           JOIN payments p ON i.payment_id = p.id
+           JOIN orders o ON p.order_id = o.id
+           WHERE o.user_id = ?::text AND p.status = 'SUCCESS'
+           ORDER BY i.created_at DESC
+           LIMIT 1`,
+          [user.id]
+        );
+        if (inv.length > 0 && inv[0].invoice_number) {
+          message = message.replace('No. Invoice: undefined', `No. Invoice: ${inv[0].invoice_number}`)
+                           .replace('No. Invoice: null', `No. Invoice: ${inv[0].invoice_number}`);
+        }
+      }
+
+      // Remove technical words
+      const cleanText = (text: string) => {
+        if (!text) return text;
+        return text
+          .replace(/duitku/gi, 'sistem pembayaran')
+          .replace(/payment gateway/gi, 'layanan pembayaran')
+          .replace(/database/gi, 'sistem')
+          .replace(/\bai\b/gi, 'sistem cerdas');
+      }
+
+      message = cleanText(message);
+      title = cleanText(title);
+
+      recentNotifications.push({
+        ...notif,
+        title,
+        message
+      });
+    }
 
     // 12. Get recent activities (last session history)
     const recentActivities = await dbQuery(

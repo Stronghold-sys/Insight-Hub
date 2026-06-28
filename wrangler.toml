@@ -7,12 +7,14 @@ compatibility_flags = [ "nodejs_compat" ]
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "2d8ed3e2cdd044f88cc94e2805d9a5a2"
+localConnectionString = "postgresql://postgres:postgres@localhost:5432/postgres"
 
 [env.production]
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "2d8ed3e2cdd044f88cc94e2805d9a5a2"
+localConnectionString = "postgresql://postgres:postgres@localhost:5432/postgres"
 
 [env.production.vars]
 NEXT_PUBLIC_SUPABASE_URL = "https://rghbldixllmhnppwqgbr.supabase.co"

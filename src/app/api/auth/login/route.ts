@@ -170,6 +170,7 @@ export async function POST(request: Request) {
         nickname: profile.nickname,
         role: profile.role_id,
       },
+      session: authData?.session || null,
     })
 
   } catch (error) {

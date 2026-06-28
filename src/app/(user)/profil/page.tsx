@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { User, Save, Check, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { User, Save, Check, Camera, Upload } from 'lucide-react'
 
 export default function ProfilPage() {
   const [formData, setFormData] = useState({
@@ -20,14 +20,16 @@ export default function ProfilPage() {
   const [saveLoading, setSaveLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string>('')
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    // Fetch profile data from API
     fetch('/api/auth/me')
       .then(res => res.json())
       .then(data => {
         if (data.authenticated && data.user) {
-          // Fill form with profile fields
           setFormData({
             fullName: data.user.fullName || '',
             nickname: data.user.nickname || '',
@@ -40,6 +42,9 @@ export default function ProfilPage() {
             timezone: data.user.timezone || 'Asia/Jakarta',
             mode: data.user.mode || 'solo'
           })
+          if (data.user.avatarUrl) {
+            setAvatarPreview(data.user.avatarUrl)
+          }
         }
         setLoading(false)
       })
@@ -49,6 +54,24 @@ export default function ProfilPage() {
       })
   }, [])
 
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('File harus berupa gambar (JPG, PNG, WEBP).')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Ukuran foto maksimal 5MB.')
+      return
+    }
+    setAvatarFile(file)
+    setError('')
+    const reader = new FileReader()
+    reader.onloadend = () => setAvatarPreview(reader.result as string)
+    reader.readAsDataURL(file)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaveLoading(true)
@@ -56,23 +79,45 @@ export default function ProfilPage() {
     setError('')
 
     try {
+      let avatarUrl = formData.avatarUrl
+
+      // Upload avatar if a new file was selected
+      if (avatarFile) {
+        setUploadingAvatar(true)
+        const payload = new FormData()
+        payload.append('avatar', avatarFile)
+        const uploadRes = await fetch('/api/auth/upload-avatar', {
+          method: 'POST',
+          body: payload
+        })
+        const uploadData = await uploadRes.json()
+        setUploadingAvatar(false)
+        if (!uploadData.success) {
+          throw new Error(uploadData.error || 'Gagal upload foto profil')
+        }
+        avatarUrl = uploadData.url
+      }
+
       const res = await fetch('/api/auth/me', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, avatarUrl })
       })
 
       const data = await res.json()
       if (data.success) {
+        setFormData(prev => ({ ...prev, avatarUrl }))
+        setAvatarFile(null)
         setSuccess(true)
         setTimeout(() => setSuccess(false), 2500)
       } else {
         setError(data.error || 'Gagal menyimpan profil.')
       }
-    } catch (err) {
-      setError('Koneksi terputus. Silakan coba lagi.')
+    } catch (err: any) {
+      setError(err.message || 'Koneksi terputus. Silakan coba lagi.')
     } finally {
       setSaveLoading(false)
+      setUploadingAvatar(false)
     }
   }
 
@@ -103,7 +148,7 @@ export default function ProfilPage() {
             {success && (
               <div style={{ background: 'rgba(23,184,151,0.08)', border: '1px solid rgba(23,184,151,0.2)', color: 'var(--teal)', padding: '10px 14px', borderRadius: 6, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Check size={18} />
-                Profil kamu berhasil diperbarui secara aman!
+                Profil kamu berhasil diperbarui!
               </div>
             )}
 
@@ -112,6 +157,67 @@ export default function ProfilPage() {
                 {error}
               </div>
             )}
+
+            {/* Avatar Upload Section */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '16px', background: 'rgba(2,134,195,0.04)', borderRadius: 10, border: '1px solid rgba(2,134,195,0.12)' }}>
+              {/* Avatar preview */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div style={{
+                  width: 80, height: 80, borderRadius: '50%', overflow: 'hidden',
+                  border: '3px solid var(--brand-blue)', background: 'rgba(2,134,195,0.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {avatarPreview ? (
+                    <img src={avatarPreview} alt="Foto Profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <User size={32} color="var(--brand-blue)" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    position: 'absolute', bottom: 0, right: 0,
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: 'var(--brand-blue)', border: '2px solid var(--surface)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: 'white',
+                  }}
+                  title="Ganti foto profil"
+                >
+                  <Camera size={12} />
+                </button>
+              </div>
+
+              {/* Upload controls */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>
+                  {avatarFile ? avatarFile.name : 'Foto Profil'}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>
+                  Format JPG, PNG, WEBP. Maks 5MB.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, gap: 6, padding: '7px 14px' }}
+                >
+                  <Upload size={13} />
+                  {avatarFile ? 'Ganti Foto' : 'Upload Foto'}
+                </button>
+              </div>
+
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleAvatarChange}
+                aria-label="Upload foto profil"
+              />
+            </div>
 
             {/* Grid 2 Columns */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
@@ -144,17 +250,6 @@ export default function ProfilPage() {
                   id="age"
                   value={formData.age}
                   onChange={e => setFormData({ ...formData, age: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', fontSize: 13.5 }}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="avatarUrl" style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>URL Avatar / Foto Profil</label>
-                <input
-                  type="text"
-                  id="avatarUrl"
-                  value={formData.avatarUrl}
-                  onChange={e => setFormData({ ...formData, avatarUrl: e.target.value })}
                   style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', fontSize: 13.5 }}
                 />
               </div>
@@ -225,9 +320,14 @@ export default function ProfilPage() {
               />
             </div>
 
-            <button type="submit" disabled={saveLoading} className="btn btn-primary" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <button
+              type="submit"
+              disabled={saveLoading}
+              className="btn btn-primary"
+              style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}
+            >
               <Save size={16} />
-              {saveLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
+              {uploadingAvatar ? 'Mengupload foto...' : saveLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
             </button>
           </form>
         )}

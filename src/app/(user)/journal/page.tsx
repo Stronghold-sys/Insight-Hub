@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { formatDate, getMoodColor } from '@/lib/utils'
 import Modal from '@/components/ui/Modal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const ENTRY_TYPES = [
   { id: 'semua', label: 'Semua' },
@@ -47,7 +48,33 @@ export default function JournalPage() {
   const [saved, setSaved] = useState(false)
   const [deletedToast, setDeletedToast] = useState(false)
   const [showDeletedOnly, setShowDeletedOnly] = useState(false)
-  
+  const [toastMsg, setToastMsg] = useState('')
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean
+    title: string
+    message: string
+    confirmLabel: string
+    variant: 'danger' | 'warning'
+    onConfirm: () => void
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    confirmLabel: 'Ya, Hapus',
+    variant: 'danger',
+    onConfirm: () => {},
+  })
+
+  const showToast = (msg: string, ms = 3000) => {
+    setToastMsg(msg)
+    setTimeout(() => setToastMsg(''), ms)
+  }
+
+  const openConfirm = (opts: typeof confirmDialog) => setConfirmDialog(opts)
+  const closeConfirm = () => setConfirmDialog(d => ({ ...d, open: false }))
+
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshCount, setRefreshCount] = useState(0)
@@ -190,26 +217,31 @@ export default function JournalPage() {
     }
   }
 
-  const handleDelete = async (entryId: string) => {
-    if (!window.confirm('Apakah kamu yakin ingin menghapus entri jurnal ini?')) return
-
-    try {
-      const res = await fetch(`/api/journal?id=${entryId}`, {
-        method: 'DELETE',
-      })
-
-      if (res.ok) {
-        setSelectedEntry(null)
-        setDeletedToast(true)
-        setRefreshCount(c => c + 1)
-        setTimeout(() => setDeletedToast(false), 3000)
-      } else {
-        alert('Gagal menghapus entri jurnal')
-      }
-    } catch (err) {
-      console.error(err)
-      alert('Terjadi kesalahan koneksi saat menghapus jurnal')
-    }
+  const handleDelete = (entryId: string) => {
+    openConfirm({
+      open: true,
+      title: 'Hapus Entri Jurnal',
+      message: 'Apakah kamu yakin ingin menghapus entri jurnal ini? Kamu masih bisa memulihkannya dari tempat sampah.',
+      confirmLabel: 'Ya, Hapus',
+      variant: 'danger',
+      onConfirm: async () => {
+        closeConfirm()
+        try {
+          const res = await fetch(`/api/journal?id=${entryId}`, { method: 'DELETE' })
+          if (res.ok) {
+            setSelectedEntry(null)
+            setDeletedToast(true)
+            setRefreshCount(c => c + 1)
+            setTimeout(() => setDeletedToast(false), 3000)
+          } else {
+            showToast('Gagal menghapus entri jurnal')
+          }
+        } catch (err) {
+          console.error(err)
+          showToast('Terjadi kesalahan koneksi saat menghapus jurnal')
+        }
+      },
+    })
   }
 
   const handleRestore = async (entryId: string) => {
@@ -221,33 +253,38 @@ export default function JournalPage() {
       if (res.ok) {
         setSelectedEntry(null)
         setRefreshCount(c => c + 1)
-        alert('Jurnal berhasil dipulihkan!')
+        showToast('Jurnal berhasil dipulihkan!')
       } else {
-        alert('Gagal memulihkan entri jurnal')
+        showToast('Gagal memulihkan entri jurnal')
       }
     } catch (err) {
       console.error(err)
     }
   }
 
-  const handleHardDelete = async (entryId: string) => {
-    if (!window.confirm('PERINGATAN: Entri jurnal ini akan dihapus secara PERMANEN dari database dan tidak dapat dipulihkan. Lanjutkan?')) return
-
-    try {
-      const res = await fetch(`/api/journal?id=${entryId}&action=hard`, {
-        method: 'DELETE',
-      })
-
-      if (res.ok) {
-        setSelectedEntry(null)
-        setRefreshCount(c => c + 1)
-        alert('Jurnal dihapus permanen!')
-      } else {
-        alert('Gagal menghapus permanen entri jurnal')
-      }
-    } catch (err) {
-      console.error(err)
-    }
+  const handleHardDelete = (entryId: string) => {
+    openConfirm({
+      open: true,
+      title: 'Hapus Permanen',
+      message: 'PERINGATAN: Entri jurnal ini akan dihapus secara PERMANEN dari aplikasi dan tidak dapat dipulihkan sama sekali. Tindakan ini tidak bisa dibatalkan.',
+      confirmLabel: 'Hapus Permanen',
+      variant: 'danger',
+      onConfirm: async () => {
+        closeConfirm()
+        try {
+          const res = await fetch(`/api/journal?id=${entryId}&action=hard`, { method: 'DELETE' })
+          if (res.ok) {
+            setSelectedEntry(null)
+            setRefreshCount(c => c + 1)
+            showToast('Jurnal dihapus permanen.')
+          } else {
+            showToast('Gagal menghapus permanen entri jurnal')
+          }
+        } catch (err) {
+          console.error(err)
+        }
+      },
+    })
   }
 
   return (
@@ -289,6 +326,12 @@ export default function JournalPage() {
       {deletedToast && (
         <div className="toast toast-success animate-fadein" style={{ marginBottom: 20, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
           <p style={{ margin: 0, fontWeight: 600, color: 'var(--error)' }}>Entri jurnal berhasil dihapus!</p>
+        </div>
+      )}
+
+      {toastMsg && (
+        <div className="toast animate-fadein" style={{ marginBottom: 20, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+          <p style={{ margin: 0, fontWeight: 600, color: 'var(--error)' }}>{toastMsg}</p>
         </div>
       )}
 
@@ -385,10 +428,18 @@ export default function JournalPage() {
                         {entry.title}
                       </h3>
                       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleToggleFavorite(entry)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                        <button 
+                          onClick={() => handleToggleFavorite(entry)} 
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+                          aria-label={entry.isStarred ? 'Hapus dari favorit' : 'Tandai sebagai favorit'}
+                        >
                           <Star size={15} fill={entry.isStarred ? '#F5A623' : 'none'} color={entry.isStarred ? '#F5A623' : 'var(--text-muted)'} />
                         </button>
-                        <button onClick={() => handleTogglePin(entry)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                        <button 
+                          onClick={() => handleTogglePin(entry)} 
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+                          aria-label={entry.isPinned ? 'Lepas sematan' : 'Sematkan jurnal'}
+                        >
                           <span style={{ fontSize: 12, opacity: entry.isPinned ? 1 : 0.4 }}>📌</span>
                         </button>
                       </div>
@@ -597,6 +648,16 @@ export default function JournalPage() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={closeConfirm}
+      />
 
       <style jsx>{`
         @media (max-width: 767px) {

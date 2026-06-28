@@ -43,6 +43,10 @@ export default function PaymentInstructionsPage() {
       if (res.ok && data.success) {
         setOrder(data.order)
         setError('')
+        // Notify sidebar to refresh plan badge when payment is confirmed
+        if (data.order?.orderStatus && ['success', 'paid'].includes(data.order.orderStatus.toLowerCase())) {
+          window.dispatchEvent(new Event('plan-updated'))
+        }
       } else {
         setError(data.error || 'Gagal memuat status pembayaran.')
       }
@@ -90,7 +94,7 @@ export default function PaymentInstructionsPage() {
 
     const interval = setInterval(() => {
       // Only poll if order is still pending
-      if (order && order.orderStatus === 'pending') {
+      if (order && ['pending', 'waiting_payment'].includes(order.orderStatus?.toLowerCase())) {
         checkStatus()
       }
     }, 10000) // Increase polling interval to 10 seconds since we have realtime enabled
@@ -100,7 +104,7 @@ export default function PaymentInstructionsPage() {
 
   // 2. Countdown Timer
   useEffect(() => {
-    if (!order || order.orderStatus !== 'pending' || !order.expiresAt) return
+    if (!order || !['pending', 'waiting_payment'].includes(order.orderStatus?.toLowerCase()) || !order.expiresAt) return
 
     const updateTimer = () => {
       const expiry = new Date(order.expiresAt.replace(' ', 'T')).getTime()
@@ -109,7 +113,7 @@ export default function PaymentInstructionsPage() {
 
       if (diff <= 0) {
         setTimeLeft('Waktu Habis')
-        setOrder((prev: any) => prev ? { ...prev, orderStatus: 'expired' } : null)
+        setOrder((prev: any) => prev ? { ...prev, orderStatus: 'EXPIRED' } : null)
         return
       }
 
@@ -193,7 +197,7 @@ export default function PaymentInstructionsPage() {
   }
 
   // --- Success State UI ---
-  if (order.orderStatus === 'success') {
+  if (order.orderStatus && ['success', 'paid'].includes(order.orderStatus.toLowerCase())) {
     return (
       <div className="card animate-fadein" style={{ padding: 48, textAlign: 'center', maxWidth: 540, margin: '40px auto' }}>
         <div style={{ color: 'var(--teal)', display: 'inline-block', marginBottom: 20 }}>
@@ -216,16 +220,21 @@ export default function PaymentInstructionsPage() {
     )
   }
 
-  // --- Failed / Expired State UI ---
-  if (order.orderStatus === 'expired' || order.orderStatus === 'failed') {
+  // --- Failed / Expired / Cancelled State UI ---
+  if (order.orderStatus && ['expired', 'failed', 'cancelled'].includes(order.orderStatus.toLowerCase())) {
+    const isCancelled = order.orderStatus.toLowerCase() === 'cancelled'
     return (
       <div className="card animate-fadein" style={{ padding: 48, textAlign: 'center', maxWidth: 540, margin: '40px auto' }}>
         <div style={{ color: 'var(--error)', display: 'inline-block', marginBottom: 20 }}>
           <AlertTriangle size={64} fill="rgba(211,47,47,0.1)" />
         </div>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Pembayaran Kedaluwarsa</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
+          {isCancelled ? 'Pembayaran Dibatalkan' : 'Pembayaran Kedaluwarsa'}
+        </h2>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 32 }}>
-          Batas waktu pembayaran untuk order <strong>{orderId}</strong> telah habis. Silakan lakukan checkout ulang.
+          {isCancelled 
+            ? `Pesanan untuk order ${orderId} telah dibatalkan.` 
+            : `Batas waktu pembayaran untuk order ${orderId} telah habis. Silakan lakukan checkout ulang.`}
         </p>
 
         <div style={{ display: 'flex', gap: 12 }}>

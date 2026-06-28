@@ -13,6 +13,7 @@ import {
 import { MOCK_USER } from '@/lib/data'
 import { getInitials } from '@/lib/utils'
 import { LoadingState } from '@/components/ui/FeedbackStates'
+import { supabase } from '@/lib/supabaseClient'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: Home, href: '/dashboard' },
@@ -45,6 +46,7 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
   const [user, setUser] = useState<any>(null)
   const [activePlan, setActivePlan] = useState('free')
   const [loading, setLoading] = useState(true)
+  const [onboardingCompleted, setOnboardingCompleted] = useState(true)
 
   // Compute active item from pathname if activeNav is not explicitly provided
   let computedActiveNav = activeNav
@@ -71,6 +73,11 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
       .then(res => res.json())
       .then(data => {
         if (data.authenticated) {
+          if (!data.user.onboardingCompleted && window.location.pathname !== '/onboarding') {
+            window.location.href = '/onboarding';
+            return;
+          }
+          setOnboardingCompleted(!!data.user.onboardingCompleted)
           setUser(data.user)
           // Fetch active plan
           fetch('/api/user/billing')
@@ -78,20 +85,26 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
             .then(bData => {
               if (bData.success && bData.activeSubscription) {
                 setActivePlan(bData.activeSubscription.planId)
+              } else {
+                setActivePlan('free')
               }
             })
             .catch(err => console.error('Error fetching active plan:', err))
 
-          // Fetch notifications count
-          fetch('/api/user/notifications')
-            .then(res => res.json())
-            .then(nData => {
-              if (nData.success && nData.notifications) {
-                const unread = nData.notifications.filter((n: any) => !n.isRead).length
-                setNotifCount(unread)
-              }
-            })
-            .catch(err => console.error('Error fetching notifications:', err))
+          // Reusable fetch function
+          const fetchNotifCount = () => {
+            fetch('/api/user/notifications')
+              .then(res => res.json())
+              .then(nData => {
+                if (nData.success && nData.notifications) {
+                  const unread = nData.notifications.filter((n: any) => !n.isRead).length
+                  setNotifCount(unread)
+                }
+              })
+              .catch(err => console.error('Error fetching notifications:', err))
+          }
+
+          fetchNotifCount()
         } else {
           const currentPath = window.location.pathname + window.location.search;
           window.location.href = `/masuk?redirect=${encodeURIComponent(currentPath)}`;
@@ -104,6 +117,85 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
         setLoading(false);
       });
   }, [])
+
+  // Realtime plan badge update
+  useEffect(() => {
+    if (!user?.id) return
+
+    const refreshPlan = () => {
+      fetch('/api/user/billing')
+        .then(res => res.json())
+        .then(bData => {
+          if (bData.success && bData.activeSubscription) {
+            setActivePlan(bData.activeSubscription.planId)
+          } else {
+            setActivePlan('free')
+          }
+        })
+        .catch(err => console.error('Error refreshing plan:', err))
+    }
+
+    const planChannel = supabase
+      .channel(`user-plan-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'subscriptions', filter: `user_id=eq.${user.id}` },
+        () => { refreshPlan() }
+      )
+      .subscribe()
+
+    // Listen to local event for same-tab instant update (fired after successful checkout)
+    window.addEventListener('plan-updated', refreshPlan)
+
+    return () => {
+      supabase.removeChannel(planChannel)
+      window.removeEventListener('plan-updated', refreshPlan)
+    }
+  }, [user?.id])
+
+
+  // Live updates for notification count
+  useEffect(() => {
+    if (!user?.id) return
+
+    const refreshCount = () => {
+      fetch('/api/user/notifications')
+        .then(res => res.json())
+        .then(nData => {
+          if (nData.success && nData.notifications) {
+            const unread = nData.notifications.filter((n: any) => !n.isRead).length
+            setNotifCount(unread)
+          }
+        })
+        .catch(err => console.error('Error refreshing notifications:', err))
+    }
+
+    const channel = supabase
+      .channel(`user-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        () => {
+          refreshCount()
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'refresh' },
+        () => {
+          refreshCount()
+        }
+      )
+      .subscribe()
+
+    // Listen to local event for instant UI update in the same session/tab
+    window.addEventListener('notifications-updated', refreshCount)
+
+    return () => {
+      supabase.removeChannel(channel)
+      window.removeEventListener('notifications-updated', refreshCount)
+    }
+  }, [user?.id])
 
   const handleLogout = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -148,15 +240,27 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
         <nav style={{ padding: '12px 8px', flex: 1, overflowY: 'auto' }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '8px 8px 4px' }}>Menu</p>
           {NAV_ITEMS.map(item => (
-            <Link
-              key={item.id}
-              href={item.href}
-              className={`nav-item ${computedActiveNav === item.id ? 'active' : ''}`}
-              style={{ marginBottom: 2 }}
-            >
-              <item.icon size={16} />
-              {item.label}
-            </Link>
+            onboardingCompleted ? (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={`nav-item ${computedActiveNav === item.id ? 'active' : ''}`}
+                style={{ marginBottom: 2 }}
+              >
+                <item.icon size={16} />
+                {item.label}
+              </Link>
+            ) : (
+              <div
+                key={item.id}
+                className="nav-item nav-item-locked"
+                style={{ marginBottom: 2, opacity: 0.4, cursor: 'not-allowed' }}
+                title="Lengkapi profil terlebih dahulu"
+              >
+                <item.icon size={16} />
+                {item.label}
+              </div>
+            )
           ))}
 
           {user?.role === 'admin' && (
@@ -175,25 +279,37 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
 
           <p style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '16px 8px 4px', marginTop: 8 }}>Akun</p>
           {BOTTOM_NAV.map(item => (
-            <Link
-              key={item.id}
-              href={item.href}
-              className={`nav-item ${computedActiveNav === item.id ? 'active' : ''}`}
-              style={{ marginBottom: 2, position: 'relative' }}
-            >
-              <item.icon size={16} />
-              {item.label}
-              {item.id === 'notifications' && notifCount > 0 && (
-                <span style={{
-                  marginLeft: 'auto', background: 'var(--error)', color: 'white',
-                  fontSize: 10, fontWeight: 700, borderRadius: 999,
-                  minWidth: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '0 5px',
-                }}>
-                  {notifCount}
-                </span>
-              )}
-            </Link>
+            onboardingCompleted ? (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={`nav-item ${computedActiveNav === item.id ? 'active' : ''}`}
+                style={{ marginBottom: 2, position: 'relative' }}
+              >
+                <item.icon size={16} />
+                {item.label}
+                {item.id === 'notifications' && notifCount > 0 && (
+                  <span style={{
+                    marginLeft: 'auto', background: 'var(--error)', color: 'white',
+                    fontSize: 10, fontWeight: 700, borderRadius: 999,
+                    minWidth: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '0 5px',
+                  }}>
+                    {notifCount}
+                  </span>
+                )}
+              </Link>
+            ) : (
+              <div
+                key={item.id}
+                className="nav-item nav-item-locked"
+                style={{ marginBottom: 2, position: 'relative', opacity: 0.4, cursor: 'not-allowed' }}
+                title="Lengkapi profil terlebih dahulu"
+              >
+                <item.icon size={16} />
+                {item.label}
+              </div>
+            )
           ))}
         </nav>
 

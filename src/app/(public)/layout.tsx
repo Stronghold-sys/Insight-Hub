@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import PublicNavbar from '@/components/public/Navbar'
 import PublicFooter from '@/components/public/Footer'
+import { getSessionUser } from '@/lib/auth'
 
 export const metadata: Metadata = {
   title: {
@@ -9,10 +10,12 @@ export const metadata: Metadata = {
   },
 }
 
-export default function PublicLayout({ children }: { children: React.ReactNode }) {
+export default async function PublicLayout({ children }: { children: React.ReactNode }) {
+  const user = await getSessionUser();
+
   return (
     <>
-      <PublicNavbar />
+      <PublicNavbar initialUser={user} />
       <main>{children}</main>
       <PublicFooter />
     </>

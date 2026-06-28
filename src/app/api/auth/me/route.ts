@@ -10,9 +10,21 @@ export async function GET() {
       return NextResponse.json({ authenticated: false, user: null });
     }
 
+    // Query active subscription plan
+    const activeSub = await dbQuery<any>(
+      `SELECT plan_id FROM subscriptions 
+       WHERE user_id::text = ? AND status = 'active' AND (ends_at IS NULL OR ends_at > NOW())
+       ORDER BY starts_at DESC LIMIT 1`,
+      [user.id]
+    );
+    const plan = activeSub.length > 0 ? activeSub[0].plan_id : 'free';
+
     return NextResponse.json({
       authenticated: true,
-      user
+      user: {
+        ...user,
+        plan
+      }
     });
   } catch (error) {
     console.error('Error during me GET API:', error);
@@ -41,7 +53,8 @@ export async function POST(req: Request) {
       privacyLevel,
       dataSharingConsent,
       languageTone,
-      mode
+      mode,
+      onboardingCompleted
     } = body;
 
     // Use INSERT ... ON CONFLICT (user_id) DO UPDATE SET to upsert user profile
@@ -49,8 +62,9 @@ export async function POST(req: Request) {
       INSERT INTO user_profiles (
         user_id, full_name, nickname, avatar_url, bio, age, 
         relationship_status, relationship_goal, communication_preference, 
-        timezone, privacy_level, data_sharing_consent, language_tone, mode
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        timezone, privacy_level, data_sharing_consent, language_tone, mode,
+        onboarding_completed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (user_id) DO UPDATE SET
         full_name = EXCLUDED.full_name,
         nickname = EXCLUDED.nickname,
@@ -64,7 +78,8 @@ export async function POST(req: Request) {
         privacy_level = EXCLUDED.privacy_level,
         data_sharing_consent = EXCLUDED.data_sharing_consent,
         language_tone = EXCLUDED.language_tone,
-        mode = EXCLUDED.mode
+        mode = EXCLUDED.mode,
+        onboarding_completed = COALESCE(EXCLUDED.onboarding_completed, user_profiles.onboarding_completed)
     `;
 
     await dbQuery(sql, [
@@ -73,7 +88,7 @@ export async function POST(req: Request) {
       nickname || user.nickname || 'Kamu',
       avatarUrl || user.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face',
       bio || '',
-      age !== undefined ? parseInt(age) : null,
+      age !== undefined && age !== null && age !== '' ? parseInt(age) : null,
       relationshipStatus || null,
       relationshipGoal || null,
       communicationPreference || null,
@@ -81,7 +96,8 @@ export async function POST(req: Request) {
       privacyLevel || 'standard',
       dataSharingConsent !== undefined ? (dataSharingConsent ? 1 : 0) : 1,
       languageTone || 'genz',
-      mode || 'solo'
+      mode || 'solo',
+      onboardingCompleted !== undefined ? (onboardingCompleted ? 1 : 0) : null
     ]);
 
     // Insert user activity log

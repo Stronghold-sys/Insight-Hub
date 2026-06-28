@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { dbQuery } from '@/lib/db'
 import { verifyDuitkuCallbackSignature } from '@/lib/duitku'
-import { processSuccessfulPayment, processExpiredPayment, mapDuitkuResultCode } from '@/lib/paymentService'
+import { processSuccessfulPayment, processExpiredPayment, mapDuitkuResultCode, PaymentStatus } from '@/lib/paymentService'
 import crypto from 'crypto'
 
 /**
@@ -78,9 +78,9 @@ export async function POST(request: Request) {
 
     // 4. Fetch order + payment dari database
     const orderRes = await dbQuery<any>(
-      `SELECT o.id, o.plan_id as "planId", o.status as "orderStatus",
-              o.total_amount as amount, o.user_id as "userId",
-              p.id as "paymentId", p.status as "paymentStatus", p.reference as "existingRef"
+      `SELECT o.id, o.plan_id as \`planId\`, o.status as \`orderStatus\`,
+              o.total_amount as amount, o.user_id as \`userId\`,
+              p.id as \`paymentId\`, p.status as \`paymentStatus\`, p.reference as \`existingRef\`
        FROM orders o
        JOIN payments p ON o.id = p.order_id
        WHERE o.id = $1
@@ -152,9 +152,9 @@ export async function POST(request: Request) {
     // 8. Proses berdasarkan resultCode
     const status = mapDuitkuResultCode(resultCode)
 
-    if (status === 'success') {
+    if (status === PaymentStatus.SUCCESS) {
       await processSuccessfulPayment(orderData)
-    } else if (status === 'expired' || status === 'failed') {
+    } else if (status === PaymentStatus.EXPIRED || status === PaymentStatus.FAILED) {
       await processExpiredPayment(orderData)
     } else {
       console.log(`[Duitku Callback] Unhandled resultCode: ${resultCode} — no state change`)
