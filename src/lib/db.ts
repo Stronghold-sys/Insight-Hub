@@ -136,7 +136,16 @@ export function normalizeKeys(row: any) {
     updatedat: 'updatedAt',
     errorid: 'errorId',
     errormessage: 'errorMessage',
-    stacktrace: 'stackTrace'
+    stacktrace: 'stackTrace',
+    onboardingcompleted: 'onboardingCompleted',
+    relationshipstatus: 'relationshipStatus',
+    relationshipgoal: 'relationshipGoal',
+    communicationpreference: 'communicationPreference',
+    privacylevel: 'privacyLevel',
+    datasharingconsent: 'dataSharingConsent',
+    languagetone: 'languageTone',
+    isactive: 'isActive',
+    userid: 'userId'
   };
 
   const normalized = { ...row };

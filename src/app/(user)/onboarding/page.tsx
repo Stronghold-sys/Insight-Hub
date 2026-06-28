@@ -43,7 +43,7 @@ export default function OnboardingPage() {
       .then(data => {
         if (!data.authenticated) {
           window.location.href = '/masuk'
-        } else if (data.user?.onboardingCompleted === 1) {
+        } else if (data.user?.onboardingCompleted) {
           window.location.href = '/dashboard'
         }
       })
