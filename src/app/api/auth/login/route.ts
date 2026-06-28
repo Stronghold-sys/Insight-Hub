@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { dbQuery } from '@/lib/db'
-import { hashPassword, createSession } from '@/lib/auth'
+import { hashPassword, createSessionToken, getSessionCookieOptions } from '@/lib/auth'
 import { supabase } from '@/lib/supabaseClient'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
     }
 
     // Sukses — buat sesi
-    await createSession(user.id)
+    const { token, expiresAt } = await createSessionToken(user.id)
 
     // Ambil profile info
     const profiles = await dbQuery<any>(
@@ -168,7 +168,8 @@ export async function POST(request: Request) {
       [user.id, 'login_success', 'User berhasil masuk ke platform']
     )
 
-    return NextResponse.json({
+    // Set cookie LANGSUNG di NextResponse (reliably works on Cloudflare Pages)
+    const response = NextResponse.json({
       success: true,
       user: {
         id: user.id,
@@ -178,6 +179,9 @@ export async function POST(request: Request) {
       },
       session: authData?.session || null,
     })
+
+    response.cookies.set('insighthub_session', token, getSessionCookieOptions(expiresAt))
+    return response
 
   } catch (error) {
     console.error('Error during login API:', error)

@@ -53,17 +53,45 @@ function LoginContent() {
         setSuccessName(data.user?.nickname || 'Kamu')
         setShowSuccessModal(true)
 
-        // Redirect setelah 1.5 detik
-        setTimeout(() => {
-          const redirectUrl = searchParams.get('redirect');
-          if (data.user.role === 'admin') {
-            window.location.href = '/admin';
-          } else if (redirectUrl) {
-            window.location.href = redirectUrl;
-          } else {
-            window.location.href = '/dashboard';
+        // Verifikasi cookie sudah diterima browser sebelum redirect
+        // Retry hingga 5x dengan interval 300ms
+        const verifySession = async (attempt = 0): Promise<void> => {
+          if (attempt >= 5) {
+            // Fallback: langsung redirect saja
+            const redirectUrl = searchParams.get('redirect');
+            if (data.user.role === 'admin') {
+              window.location.href = '/admin';
+            } else if (redirectUrl) {
+              window.location.href = redirectUrl;
+            } else {
+              window.location.href = '/dashboard';
+            }
+            return;
           }
-        }, 1500)
+          try {
+            const check = await fetch('/api/auth/me', { credentials: 'include' });
+            const checkData = await check.json();
+            if (checkData.authenticated) {
+              // Cookie sudah terbaca oleh server, aman untuk redirect
+              const redirectUrl = searchParams.get('redirect');
+              if (data.user.role === 'admin') {
+                window.location.href = '/admin';
+              } else if (redirectUrl) {
+                window.location.href = redirectUrl;
+              } else {
+                window.location.href = '/dashboard';
+              }
+            } else {
+              // Coba lagi setelah 300ms
+              setTimeout(() => verifySession(attempt + 1), 300);
+            }
+          } catch {
+            setTimeout(() => verifySession(attempt + 1), 300);
+          }
+        };
+
+        // Mulai verifikasi setelah 300ms (beri waktu browser set cookie)
+        setTimeout(() => verifySession(), 300);
 
       } else if (res.status === 403 && data.requiresVerification) {
         // Akun belum diverifikasi — arahkan ke OTP
