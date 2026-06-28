@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { dbQuery } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import crypto from 'crypto'
+
+function hashOtp(otp: string): string {
+  return crypto.createHash('sha256').update(otp).digest('hex')
+}
 
 export async function POST(request: Request) {
   try {
@@ -20,116 +25,154 @@ export async function POST(request: Request) {
       )
     }
 
-    // Cari OTP yang valid (belum kedaluarsa dan belum dipakai)
-    const otps = await dbQuery<any>(
-      `SELECT id, code, expires_at, used_at
-       FROM otp_codes
-       WHERE email = ? AND purpose = ? AND used_at IS NULL
-       ORDER BY created_at DESC LIMIT 1`,
-      [email, purpose]
-    )
+    const normalizedEmail = email.trim().toLowerCase()
 
-    if (otps.length === 0) {
-      return NextResponse.json(
-        { message: 'Kode OTP nggak ketemu. Kirim ulang kode dulu ya!' },
-        { status: 400 }
-      )
-    }
-
-    const otpRow = otps[0]
-
-    // Cek apakah OTP sudah expired
-    if (new Date() > new Date(otpRow.expires_at)) {
-      return NextResponse.json(
-        {
-          message: 'Kode kamu udah kedaluarsa nih. Kirim ulang kode biar bisa lanjut!',
-          expired: true,
-        },
-        { status: 400 }
-      )
-    }
-
-    // Cek apakah kode cocok
-    if (otpRow.code !== code.trim()) {
-      return NextResponse.json(
-        { message: 'Kode OTP-nya salah nih. Cek lagi emailmu ya!' },
-        { status: 400 }
-      )
-    }
-
-    // Tandai OTP sebagai sudah dipakai
-    await dbQuery(
-      'UPDATE otp_codes SET used_at = NOW() WHERE id = ?',
-      [otpRow.id]
-    )
-
+    // ==========================================
+    // VERIFIKASI UNTUK REGISTRASI (PENDING FLOW)
+    // ==========================================
     if (purpose === 'register') {
-      // Aktifkan akun user
-      await dbQuery(
-        'UPDATE users SET email_verified = 1, is_active = 1 WHERE email = ?',
-        [email]
+      // Cari data pending registration
+      const pendingRows = await dbQuery<any>(
+        `SELECT id, full_name, username, email, password_hash, otp_hash, otp_expired_at, otp_attempt 
+         FROM pending_registrations
+         WHERE email = ? LIMIT 1`,
+        [normalizedEmail]
       )
 
-      // Ambil userId untuk setup initial data
-      const users = await dbQuery<any>(
-        'SELECT id FROM users WHERE email = ? LIMIT 1',
-        [email]
-      )
-
-      if (users.length > 0) {
-        const userId = users[0].id
-
-        // Buat default journal jika belum ada
-        const existingJournal = await dbQuery(
-          'SELECT id FROM journals WHERE user_id = ? LIMIT 1',
-          [userId]
+      if (pendingRows.length === 0) {
+        return NextResponse.json(
+          { message: 'Pendaftaran kamu nggak ketemu atau sudah kedaluarsa. Silakan daftar ulang ya!' },
+          { status: 400 }
         )
-        if (existingJournal.length === 0) {
-          const profileRows = await dbQuery<any>(
-            'SELECT nickname FROM user_profiles WHERE user_id = ? LIMIT 1',
-            [userId]
-          )
-          const nick = profileRows[0]?.nickname || 'Kamu'
-          await dbQuery(
-            'INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)',
-            [crypto.randomUUID(), userId, `Jurnal ${nick}`, '']
-          )
-        }
+      }
 
-        // Buat default subscription gratis jika belum ada
-        const existingSub = await dbQuery(
-          'SELECT id FROM subscriptions WHERE user_id = ? LIMIT 1',
-          [userId]
-        )
-        if (existingSub.length === 0) {
-          await dbQuery(
-            'INSERT INTO subscriptions (id, user_id, plan_id, status, starts_at, ends_at) VALUES (?, ?, "free", "active", NOW(), NULL)',
-            [crypto.randomUUID(), userId]
-          )
-        }
+      const pendingUser = pendingRows[0]
 
-        // Kirim notifikasi selamat datang
-        const profileRes = await dbQuery<any>(
-          'SELECT nickname FROM user_profiles WHERE user_id = ? LIMIT 1',
-          [userId]
-        )
-        const name = profileRes[0]?.nickname || 'Kamu'
+      // 1. Cek batas percobaan OTP (max 5)
+      if (pendingUser.otp_attempt >= 5) {
+        // Hapus data pendaftaran pending agar bersih
+        await dbQuery('DELETE FROM pending_registrations WHERE id = ?', [pendingUser.id])
         await dbQuery(
+          'INSERT INTO audit_logs (user_id, action, details) VALUES (NULL, ?, ?)',
+          ['otp_blocked', `Percobaan OTP melebihi batas (5x) untuk email: ${normalizedEmail}. Pendaftaran pending dihapus.`]
+        ).catch(() => {})
+
+        return NextResponse.json(
+          { message: 'Kamu udah salah masukkan kode OTP 5x. Silakan daftar ulang akun kamu dari awal ya!' },
+          { status: 400 }
+        )
+      }
+
+      // 2. Cek apakah OTP sudah expired
+      if (new Date() > new Date(pendingUser.otp_expired_at)) {
+        await dbQuery(
+          'INSERT INTO audit_logs (user_id, action, details) VALUES (NULL, ?, ?)',
+          ['otp_expired', `OTP expired untuk email: ${normalizedEmail}`]
+        ).catch(() => {})
+
+        return NextResponse.json(
+          {
+            message: 'Kode kamu udah kedaluarsa nih. Kirim ulang kode biar bisa lanjut!',
+            expired: true,
+          },
+          { status: 400 }
+        )
+      }
+
+      // 3. Cek apakah kode cocok (hashing comparison)
+      const inputOtpHash = hashOtp(code.trim())
+      if (pendingUser.otp_hash !== inputOtpHash) {
+        // Tambah attempt
+        const newAttempt = pendingUser.otp_attempt + 1
+        await dbQuery(
+          'UPDATE pending_registrations SET otp_attempt = ? WHERE id = ?',
+          [newAttempt, pendingUser.id]
+        )
+
+        // Log audit log
+        await dbQuery(
+          'INSERT INTO audit_logs (user_id, action, details) VALUES (NULL, ?, ?)',
+          ['otp_failed', `Gagal memverifikasi OTP (salah kode) ke-${newAttempt} untuk email: ${normalizedEmail}`]
+        ).catch(() => {})
+
+        return NextResponse.json(
+          { message: `Kode OTP-nya salah nih. Sisa percobaan: ${5 - newAttempt}x lagi!` },
+          { status: 400 }
+        )
+      }
+
+      // 4. OTP VALID! Baru buat akun di Supabase Auth (auth.users)
+      // Kita pakai password_hash dari database sebagai password awal di Supabase Auth
+      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        password: pendingUser.password_hash,
+        email_confirm: true,
+      })
+
+      if (authError) {
+        console.error('[Verify OTP] Supabase Auth creation failed:', authError.message)
+        return NextResponse.json(
+          { message: `Gagal membuat akun di Authentication server: ${authError.message}` },
+          { status: 400 }
+        )
+      }
+
+      const userId = authUser.user.id
+
+      // 5. Buat data profile, roles, settings, subscription, dll secara parallel
+      await Promise.all([
+        dbQuery(
+          'INSERT INTO users (id, email, password_hash, is_active, email_verified) VALUES (?, ?, ?, 1, 1)',
+          [userId, normalizedEmail, pendingUser.password_hash]
+        ),
+        dbQuery(
+          'INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)',
+          [userId, 'user']
+        ),
+        dbQuery(
+          'INSERT INTO user_profiles (user_id, full_name, nickname, avatar_url, age, relationship_status, language_tone, mode) VALUES (?, ?, ?, ?, 20, "Single", "genz", "solo")',
+          [
+            userId,
+            pendingUser.full_name,
+            pendingUser.username,
+            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face'
+          ]
+        ),
+        dbQuery(
+          'INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)',
+          [crypto.randomUUID(), userId, `Jurnal ${pendingUser.full_name}`, '']
+        ),
+        dbQuery(
+          'INSERT INTO subscriptions (id, user_id, plan_id, status, starts_at, ends_at) VALUES (?, ?, "free", "active", NOW(), NULL)',
+          [crypto.randomUUID(), userId]
+        ),
+        dbQuery(
           'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, false, ?)',
           [
             crypto.randomUUID(),
             userId,
             'Selamat Datang!',
-            `Halo ${name}! Selamat bergabung di Insight Hub. Platform self-awareness berbasis sains ini siap membantumu kenali diri dan dinamika relasi kamu.`,
+            `Halo ${pendingUser.full_name}! Selamat bergabung di Insight Hub. Platform self-awareness berbasis sains ini siap membantumu kenali diri dan dinamika relasi kamu.`,
             'medium',
           ]
         )
+      ])
 
-        await dbQuery(
+      // 6. Catat Audit Logs & Hapus dari pending_registrations
+      await Promise.all([
+        dbQuery(
           'INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)',
-          [userId, 'email_verified', 'Akun berhasil diverifikasi via OTP']
-        )
-      }
+          [userId, 'email_verified', 'Akun berhasil diverifikasi via OTP pendaftaran']
+        ).catch(() => {}),
+        dbQuery(
+          'INSERT INTO audit_logs (user_id, action, details) VALUES (?, ?, ?)',
+          [userId, 'user_created', 'Akun berhasil dibuat di auth.users Supabase dan database lokal']
+        ).catch(() => {}),
+        dbQuery(
+          'DELETE FROM pending_registrations WHERE id = ?',
+          [pendingUser.id]
+        ).catch(() => {})
+      ])
 
       return NextResponse.json({
         success: true,
@@ -138,18 +181,58 @@ export async function POST(request: Request) {
       })
     }
 
+    // ==========================================
+    // VERIFIKASI UNTUK FORGOT PASSWORD
+    // ==========================================
     if (purpose === 'forgot_password') {
+      const otps = await dbQuery<any>(
+        `SELECT id, code, expires_at, used_at
+         FROM otp_codes
+         WHERE email = ? AND purpose = 'forgot_password' AND used_at IS NULL
+         ORDER BY created_at DESC LIMIT 1`,
+        [normalizedEmail]
+      )
+
+      if (otps.length === 0) {
+        return NextResponse.json(
+          { message: 'Kode OTP nggak ketemu. Kirim ulang kode dulu ya!' },
+          { status: 400 }
+        )
+      }
+
+      const otpRow = otps[0]
+
+      if (new Date() > new Date(otpRow.expires_at)) {
+        return NextResponse.json(
+          {
+            message: 'Kode kamu udah kedaluarsa nih. Kirim ulang kode biar bisa lanjut!',
+            expired: true,
+          },
+          { status: 400 }
+        )
+      }
+
+      if (otpRow.code !== code.trim()) {
+        return NextResponse.json(
+          { message: 'Kode OTP-nya salah nih. Cek lagi emailmu ya!' },
+          { status: 400 }
+        )
+      }
+
+      // Gunakan OTP
+      await dbQuery(
+        "UPDATE otp_codes SET used_at = NOW() WHERE id = ?",
+        [otpRow.id]
+      )
+
       // Generate reset token sementara
       const resetToken = crypto.randomBytes(32).toString('hex')
       const resetExpiry = new Date(Date.now() + 15 * 60 * 1000) // 15 menit
 
-      // Hapus reset token lama
-      await dbQuery('DELETE FROM password_reset_tokens WHERE email = ?', [email])
-
-      // Simpan reset token baru
+      await dbQuery('DELETE FROM password_reset_tokens WHERE email = ?', [normalizedEmail])
       await dbQuery(
         'INSERT INTO password_reset_tokens (id, email, token, expires_at) VALUES (?, ?, ?, ?)',
-        [crypto.randomUUID(), email, resetToken, resetExpiry]
+        [crypto.randomUUID(), normalizedEmail, resetToken, resetExpiry]
       )
 
       return NextResponse.json({

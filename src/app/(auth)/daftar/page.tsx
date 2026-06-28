@@ -9,8 +9,9 @@ import { validateEmail, validatePassword } from '@/lib/utils'
 function RegisterContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [form, setForm] = useState({ name: '', email: '', password: '' })
+  const [form, setForm] = useState({ name: '', username: '', email: '', password: '', confirmPassword: '' })
   const [showPass, setShowPass] = useState(false)
+  const [showConfirmPass, setShowConfirmPass] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [registerError, setRegisterError] = useState('')
@@ -18,9 +19,22 @@ function RegisterContent() {
   const validate = () => {
     const errs: Record<string, string> = {}
     if (!form.name.trim() || form.name.trim().length < 2) errs.name = 'Nama minimal 2 karakter dong'
+    
+    if (!form.username.trim() || form.username.trim().length < 3) {
+      errs.username = 'Username minimal 3 karakter'
+    } else if (!/^[a-zA-Z0-9_]+$/.test(form.username)) {
+      errs.username = 'Username cuma boleh huruf, angka, dan underscore'
+    }
+
     if (!validateEmail(form.email)) errs.email = 'Format email-nya kurang bener nih'
+    
     const passValidation = validatePassword(form.password)
     if (!passValidation.valid) errs.password = passValidation.errors[0]
+    
+    if (form.password !== form.confirmPassword) {
+      errs.confirmPassword = 'Konfirmasi password kamu nggak cocok'
+    }
+
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -34,7 +48,13 @@ function RegisterContent() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          name: form.name,
+          username: form.username,
+          email: form.email,
+          password: form.password,
+          confirmPassword: form.confirmPassword
+        })
       });
       const data = (await res.json()) as any;
       setLoading(false);
@@ -154,6 +174,24 @@ function RegisterContent() {
               )}
             </div>
 
+            {/* Username */}
+            <div>
+              <label className="label" htmlFor="username">Username</label>
+              <input
+                id="username"
+                className={`input ${errors.username ? 'input-error' : ''}`}
+                placeholder="Misal: kirasaya, bimo_123"
+                value={form.username}
+                onChange={e => setForm(f => ({ ...f, username: e.target.value.toLowerCase().trim() }))}
+                disabled={loading}
+              />
+              {errors.username && (
+                <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <AlertCircle size={12} /> {errors.username}
+                </p>
+              )}
+            </div>
+
             {/* Email */}
             <div>
               <label className="label" htmlFor="email">Email</label>
@@ -210,6 +248,39 @@ function RegisterContent() {
               {errors.password && (
                 <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <AlertCircle size={12} /> {errors.password}
+                </p>
+              )}
+            </div>
+
+            {/* Confirm Password */}
+            <div>
+              <label className="label" htmlFor="confirmPassword">Konfirmasi Password</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="confirmPassword"
+                  type={showConfirmPass ? 'text' : 'password'}
+                  className={`input ${errors.confirmPassword ? 'input-error' : ''}`}
+                  placeholder="Ulangi password kamu"
+                  value={form.confirmPassword}
+                  onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                  disabled={loading}
+                  style={{ paddingRight: 44 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPass(!showConfirmPass)}
+                  style={{
+                    position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-muted)', padding: 4,
+                  }}
+                >
+                  {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {errors.confirmPassword && (
+                <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <AlertCircle size={12} /> {errors.confirmPassword}
                 </p>
               )}
             </div>
