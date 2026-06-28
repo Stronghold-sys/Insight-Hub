@@ -63,11 +63,11 @@ export async function getUserByToken(sessionToken: string): Promise<AuthUser | n
       u.id, 
       u.email, 
       r.id AS role,
-      p.full_name AS "fullName",
+      p.full_name AS fullName,
       p.nickname,
-      p.avatar_url AS "avatarUrl",
+      p.avatar_url AS avatarUrl,
       p.mode,
-      COALESCE(p.onboarding_completed, 0) AS "onboardingCompleted"
+      COALESCE(p.onboarding_completed, 0) AS onboardingCompleted
     FROM sessions s
     JOIN users u ON s.user_id::uuid = u.id
     JOIN user_roles ur ON u.id::text = ur.user_id

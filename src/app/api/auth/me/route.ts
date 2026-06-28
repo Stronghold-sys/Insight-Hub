@@ -16,14 +16,14 @@ export async function GET() {
     try {
       const profileRows = await dbQuery<any>(
         `SELECT bio, age,
-                relationship_status AS "relationshipStatus",
-                relationship_goal AS "relationshipGoal",
-                communication_preference AS "communicationPreference",
+                relationship_status AS relationshipStatus,
+                relationship_goal AS relationshipGoal,
+                communication_preference AS communicationPreference,
                 timezone,
-                privacy_level AS "privacyLevel",
-                data_sharing_consent AS "dataSharingConsent",
-                language_tone AS "languageTone",
-                avatar_url AS "avatarUrl"
+                privacy_level AS privacyLevel,
+                data_sharing_consent AS dataSharingConsent,
+                language_tone AS languageTone,
+                avatar_url AS avatarUrl
          FROM user_profiles WHERE user_id::text = ?`,
         [String(user.id)]
       );
