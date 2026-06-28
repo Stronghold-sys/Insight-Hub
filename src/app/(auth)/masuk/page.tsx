@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react'
 import { validateEmail } from '@/lib/utils'
 import { supabase } from '@/lib/supabaseClient'
-import { Turnstile } from '@marsidev/react-turnstile'
+import Script from 'next/script'
 
 function LoginContent() {
   const searchParams = useSearchParams()
@@ -18,6 +18,39 @@ function LoginContent() {
   const [authError, setAuthError] = useState('')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const justVerified = searchParams.get('verified') === '1'
+
+  const turnstileContainerRef = useRef<HTMLDivElement>(null)
+  const widgetIdRef = useRef<string | null>(null)
+
+  const handleTurnstileLoaded = () => {
+    if (typeof window !== 'undefined' && (window as any).turnstile && turnstileContainerRef.current) {
+      if (widgetIdRef.current) {
+        try {
+          (window as any).turnstile.remove(widgetIdRef.current)
+        } catch (e) {}
+      }
+      widgetIdRef.current = (window as any).turnstile.render(turnstileContainerRef.current, {
+        sitekey: '0x4AAAAAAADsYqw_eHQeq4gKS',
+        callback: (token: string) => setCaptchaToken(token),
+        'expired-callback': () => setCaptchaToken(null),
+        'error-callback': () => setCaptchaToken(null),
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).turnstile) {
+      handleTurnstileLoaded()
+    }
+    // Cleanup on unmount
+    return () => {
+      if (widgetIdRef.current && typeof window !== 'undefined' && (window as any).turnstile) {
+        try {
+          (window as any).turnstile.remove(widgetIdRef.current)
+        } catch (e) {}
+      }
+    }
+  }, [])
 
   const validate = () => {
     const errs: Record<string, string> = {}
@@ -171,14 +204,14 @@ function LoginContent() {
             </div>
 
             {/* Cloudflare Turnstile */}
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 16px' }}>
-              <Turnstile
-                siteKey="0x4AAAAAAADsYqw_eHQeq4gKS"
-                onSuccess={(token) => setCaptchaToken(token)}
-                onExpire={() => setCaptchaToken(null)}
-                onError={() => setCaptchaToken(null)}
-              />
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 16px', minHeight: '65px' }}>
+              <div ref={turnstileContainerRef} />
             </div>
+            <Script 
+              src="https://challenges.cloudflare.com/turnstile/v0/api.js" 
+              strategy="afterInteractive"
+              onLoad={handleTurnstileLoaded}
+            />
 
             <button
               type="submit"
