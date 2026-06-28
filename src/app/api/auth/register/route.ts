@@ -112,8 +112,8 @@ export async function POST(request: Request) {
       ),
     ])
 
-    // Kirim email OTP + audit log secara parallel, non-blocking (tidak perlu tunggu)
-    Promise.all([
+    // Kirim email OTP + audit log secara parallel (tunggu selesai sebelum return biar context tidak ter-kill di serverless!)
+    await Promise.all([
       sendOtpEmail(email, trimmedName, otp, 'register').catch((e: unknown) =>
         console.error('[Register] Email failed:', e)
       ),
@@ -132,10 +132,8 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Error during register API:', error)
-    const errMsg = error instanceof Error ? error.message : String(error)
-    const errStack = error instanceof Error ? error.stack : undefined
     return NextResponse.json(
-      { message: 'Gagal membuat akun, coba lagi beberapa saat.', _debug: errMsg, _stack: errStack },
+      { message: 'Gagal membuat akun, coba lagi beberapa saat.' },
       { status: 500 }
     )
   }

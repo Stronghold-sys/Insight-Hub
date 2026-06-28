@@ -1,7 +1,5 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY || 're_placeholder')
-
 const FROM_EMAIL = 'Insight Hub <noreply@insighthubidn.my.id>'
 
 // ============================================================
@@ -119,6 +117,7 @@ export async function sendOtpEmail(
       ? `Kode Reset Password Insight Hub — ${otp}`
       : `Kode Verifikasi Insight Hub — ${otp}`
 
+    const resend = new Resend(process.env.RESEND_API_KEY || '');
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
       to,
