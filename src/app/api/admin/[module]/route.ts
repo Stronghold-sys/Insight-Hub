@@ -28,7 +28,7 @@ export async function GET(
       const latestAudit = await dbQuery(
         `SELECT a.id, a.action, a.details, DATE_FORMAT(a.created_at, '%Y-%m-%d %H:%i') as date, p.nickname
          FROM audit_logs a
-         LEFT JOIN user_profiles p ON a.user_id = p.user_id
+         LEFT JOIN user_profiles p ON a.user_id::text = p.user_id
          ORDER BY a.created_at DESC
          LIMIT 5`
       );

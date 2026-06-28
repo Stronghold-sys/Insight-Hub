@@ -42,7 +42,7 @@ export async function getSessionUser(): Promise<AuthUser | null> {
       p.avatar_url AS avatarUrl,
       p.mode
     FROM sessions s
-    JOIN users u ON s.user_id = u.id
+    JOIN users u ON s.user_id::uuid = u.id
     JOIN user_roles ur ON u.id::text = ur.user_id
     JOIN roles r ON ur.role_id = r.id
     LEFT JOIN user_profiles p ON u.id::text = p.user_id
