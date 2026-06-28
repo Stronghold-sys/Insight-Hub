@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import postgres from 'postgres';
+import { Pool } from 'pg';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function GET(request: Request) {
@@ -20,10 +20,17 @@ export async function GET(request: Request) {
   let dbError = null;
   let hyperdriveStatus = 'No Hyperdrive Context';
 
+  let connectionString = process.env.SUPABASE_DB_URL;
+  let isHyperdrive = false;
+
   try {
-    const ctx = getCloudflareContext();
-    if (ctx && ctx.env && (ctx.env as any).HYPERDRIVE) {
-      hyperdriveStatus = `Hyperdrive bound (has connectionString: ${!!(ctx.env as any).HYPERDRIVE.connectionString})`;
+    const ctx = await getCloudflareContext({ async: true });
+    if (ctx?.env && (ctx.env as any).HYPERDRIVE?.connectionString) {
+      connectionString = (ctx.env as any).HYPERDRIVE.connectionString;
+      isHyperdrive = true;
+      hyperdriveStatus = `Hyperdrive bound (has connectionString: true)`;
+    } else {
+      hyperdriveStatus = 'No Hyperdrive binding found';
     }
   } catch (e: any) {
     hyperdriveStatus = `Error getting context: ${e.message}`;
@@ -40,54 +47,43 @@ export async function GET(request: Request) {
     });
   }
 
-  let dbUrl = process.env.SUPABASE_DB_URL;
-  let isHyperdrive = false;
-
-  try {
-    const ctx = getCloudflareContext();
-    if (ctx && ctx.env && (ctx.env as any).HYPERDRIVE && (ctx.env as any).HYPERDRIVE.connectionString) {
-      dbUrl = (ctx.env as any).HYPERDRIVE.connectionString;
-      isHyperdrive = true;
-    }
-  } catch (e) {
-    // ignore
+  if (!connectionString) {
+    return NextResponse.json({
+      status: 'error',
+      timestamp: new Date().toISOString(),
+      envStatus,
+      hyperdriveStatus,
+      dbConnection: 'Skipped (no connection string)',
+      dbError: 'SUPABASE_DB_URL is not set',
+    });
   }
 
-  if (dbUrl) {
-    let servername: string | undefined = undefined;
-    let cleanedUrl = dbUrl;
-    if (!isHyperdrive) {
-      if (cleanedUrl.includes('sslmode=')) {
-        cleanedUrl = cleanedUrl.replace(/[?&]sslmode=[^&]+/g, '');
-      }
-      cleanedUrl = cleanedUrl.replace(':5432/', ':6543/');
-      const hostMatch = cleanedUrl.match(/@([^:/]+)/);
-      if (hostMatch) {
-        servername = hostMatch[1];
-      }
-    }
+  // Strip sslmode, switch to transaction pooler port untuk non-Hyperdrive
+  if (!isHyperdrive) {
+    connectionString = connectionString.replace(/[?&]sslmode=[^&]+/g, '');
+    connectionString = connectionString.replace(':5432/', ':6543/');
+  }
 
-    const sqlClient = postgres(cleanedUrl, {
-      ssl: isHyperdrive ? false : { 
-        rejectUnauthorized: false,
-        servername: servername
-      }
-    });
+  const pool = new Pool({
+    connectionString,
+    ssl: isHyperdrive ? false : { rejectUnauthorized: false },
+    max: 1,
+    connectionTimeoutMillis: 10000,
+  });
 
+  try {
+    const client = await pool.connect();
     try {
-      const res = await sqlClient`SELECT 1 as val`;
-      dbConnection = `Connected successfully (Result: ${JSON.stringify(res)})`;
-    } catch (err: any) {
-      dbConnection = 'Failed';
-      dbError = {
-        message: err.message,
-        stack: err.stack,
-      };
+      const res = await client.query('SELECT 1 as val');
+      dbConnection = `Connected successfully via ${isHyperdrive ? 'Hyperdrive' : 'Direct SSL'} (Result: ${JSON.stringify(res.rows)})`;
     } finally {
-      await sqlClient.end().catch(() => {});
+      client.release();
     }
-  } else {
-    dbConnection = 'Skipped (no connection string)';
+  } catch (err: any) {
+    dbConnection = 'Failed';
+    dbError = { message: err.message, code: err.code };
+  } finally {
+    await pool.end().catch(() => {});
   }
 
   return NextResponse.json({

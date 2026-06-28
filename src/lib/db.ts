@@ -1,4 +1,4 @@
-import postgres from 'postgres';
+import { Pool } from 'pg';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -151,80 +151,71 @@ export function normalizeKeys(row: any) {
 
 export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   const convertedSql = convertQuery(sql);
-  
-  let dbUrl = process.env.SUPABASE_DB_URL;
+
+  let connectionString = process.env.SUPABASE_DB_URL;
   let isHyperdrive = false;
-  
+
   try {
-    const ctx = getCloudflareContext();
-    if (ctx && ctx.env && (ctx.env as any).HYPERDRIVE && (ctx.env as any).HYPERDRIVE.connectionString) {
-      dbUrl = (ctx.env as any).HYPERDRIVE.connectionString;
+    const ctx = await getCloudflareContext({ async: true });
+    if (ctx?.env && (ctx.env as any).HYPERDRIVE?.connectionString) {
+      connectionString = (ctx.env as any).HYPERDRIVE.connectionString;
       isHyperdrive = true;
     }
   } catch (e) {
-    // ignore
+    // ignore — tidak di Cloudflare Workers environment
   }
 
-  let servername: string | undefined = undefined;
-  if (dbUrl) {
-    console.log('[DB] Connection URL:', dbUrl.replace(/:[^:@/]+@/, ':***@'));
-    if (!isHyperdrive) {
-      if (dbUrl.includes('sslmode=')) {
-        dbUrl = dbUrl.replace(/[?&]sslmode=[^&]+/g, '');
-      }
-      dbUrl = dbUrl.replace(':5432/', ':6543/');
-      
-      const hostMatch = dbUrl.match(/@([^:/]+)/);
-      if (hostMatch) {
-        servername = hostMatch[1];
-      }
-    }
-  } else {
+  if (!connectionString) {
     console.warn('[DB] Database URL is UNDEFINED at runtime!');
-  }
-
-  if (!dbUrl) {
     throw new Error('Database connection URL is undefined.');
   }
 
-  const sqlClient = postgres(dbUrl, {
-    ssl: isHyperdrive ? false : { 
-      rejectUnauthorized: false,
-      servername: servername
-    }
+  // Strip sslmode dari URL jika non-Hyperdrive (pg handles ssl via option)
+  if (!isHyperdrive && connectionString.includes('sslmode=')) {
+    connectionString = connectionString.replace(/[?&]sslmode=[^&]+/g, '');
+  }
+
+  // Gunakan transaction pooler port 6543 untuk non-Hyperdrive (lebih stabil di serverless)
+  if (!isHyperdrive) {
+    connectionString = connectionString.replace(':5432/', ':6543/');
+  }
+
+  console.log('[DB] Connecting via', isHyperdrive ? 'Hyperdrive' : 'Direct SSL', '→', connectionString.replace(/:[^:@/]+@/, ':***@'));
+
+  const pool = new Pool({
+    connectionString,
+    ssl: isHyperdrive ? false : { rejectUnauthorized: false },
+    max: 1,         // 1 connection per request — Cloudflare Workers stateless
+    idleTimeoutMillis: 5000,
+    connectionTimeoutMillis: 10000,
   });
-  
+
+  const client = await pool.connect();
   try {
-    const result = await sqlClient.unsafe(convertedSql, params);
-    return result.map(normalizeKeys) as T[];
+    const result = await client.query(convertedSql, params);
+    return result.rows.map(normalizeKeys) as T[];
   } catch (error) {
-    console.error('Database Query Error (PostgreSQL):', error);
+    console.error('Database Query Error:', error);
     console.error('Original SQL:', sql);
     console.error('Converted SQL:', convertedSql);
     console.error('Parameters:', params);
 
-    // Catat log error ke table error_logs secara asynchronous dengan client baru
-    const logSqlClient = postgres(dbUrl, {
-      ssl: isHyperdrive ? false : { 
-        rejectUnauthorized: false,
-        servername: servername
-      }
-    });
-    try {
-      const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
-      await logSqlClient.unsafe(logSql, [
-        error instanceof Error ? error.message : String(error),
-        error instanceof Error ? (error.stack || null) : null,
-        sql.substring(0, 255)
-      ]);
-    } catch (err) {
-      console.error('Failed to log error to database:', err);
-    } finally {
-      await logSqlClient.end().catch(() => {});
-    }
+    // Log error ke DB secara async, non-blocking
+    (async () => {
+      try {
+        const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
+        await client.query(logSql, [
+          error instanceof Error ? error.message : String(error),
+          error instanceof Error ? (error.stack || null) : null,
+          sql.substring(0, 255),
+        ]);
+      } catch { /* abaikan error logging */ }
+    })();
+
     throw error;
   } finally {
-    await sqlClient.end().catch(() => {});
+    client.release();
+    await pool.end().catch(() => {});
   }
 }
 
