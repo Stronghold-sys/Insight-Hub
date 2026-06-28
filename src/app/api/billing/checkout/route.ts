@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Tolak request yang mencoba mengirim harga dari frontend
+    // Tolak request yang mencoba mengirim harga dari frontend (Anti-Tampering)
     const forbidden = ['price', 'total', 'subtotal', 'tax', 'discount', 'admin_fee', 'amount']
     for (const field of forbidden) {
       if (body[field] !== undefined) {
@@ -38,8 +38,9 @@ export async function POST(request: Request) {
     }
 
     // 1. Ambil harga dari database — BUKAN dari client
+    // is_active tidak ada di schema pricing_plans, jadi query id saja
     const plans = await dbQuery<any>(
-      'SELECT id, name, price FROM pricing_plans WHERE id = $1 AND is_active = true LIMIT 1',
+      'SELECT id, name, price FROM pricing_plans WHERE id = ? LIMIT 1',
       [planId]
     )
     if (plans.length === 0) {
@@ -55,11 +56,11 @@ export async function POST(request: Request) {
     let discount = 0
     let usedPromoId: string | null = null
 
-    // 2. Validasi promo code dari database
+    // 2. Validasi promo code dari database (is_active bertipe smallint)
     if (promoCode) {
       const codes = await dbQuery<any>(
         `SELECT id, discount_pct, max_uses, used_count FROM promo_codes
-         WHERE code = $1 AND is_active = true AND (expires_at IS NULL OR expires_at > NOW())
+         WHERE code = ? AND is_active = 1 AND (expires_at IS NULL OR expires_at > NOW())
          LIMIT 1`,
         [promoCode]
       )
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
     const pendingOrders = await dbQuery<any>(
       `SELECT o.id FROM orders o
        JOIN payments p ON o.id = p.order_id
-       WHERE o.user_id = $1 AND o.plan_id = $2 AND o.status = 'pending'
+       WHERE o.user_id = ? AND o.plan_id = ? AND o.status = 'pending'
          AND p.expires_at > NOW()
        LIMIT 1`,
       [user.id, planId]
@@ -103,26 +104,26 @@ export async function POST(request: Request) {
     const orderId = `ORD-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
     await dbQuery(
       `INSERT INTO orders (id, user_id, plan_id, amount, discount_amount, admin_fee, total_amount, status, coupon_code, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, NOW())`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW())`,
       [orderId, user.id, planId, basePrice, discount, adminFee, finalAmount, promoCode || null]
     )
 
     await dbQuery(
       `INSERT INTO order_items (id, order_id, item_name, qty, price, created_at)
-       VALUES ($1, $2, $3, 1, $4, NOW())`,
+       VALUES (?, ?, ?, 1, ?, NOW())`,
       [crypto.randomUUID(), orderId, `Langganan Insight Hub — Paket ${plan.name}`, finalAmount]
     )
 
     // Tandai promo code terpakai (setelah order dibuat)
     if (usedPromoId) {
       await dbQuery(
-        'UPDATE promo_codes SET used_count = used_count + 1 WHERE id = $1',
+        'UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?',
         [usedPromoId]
       )
     }
 
     // 5. Kirim request ke Duitku (URL dari env vars)
-    const expiryMinutes = parseInt(process.env.DUITKU_EXPIRY_MINUTES || '1440', 10)
+    const expiryMinutes = parseInt(process.env.DUITKU_EXPIRY_MINUTES || '5', 10)
 
     let duitkuResponse
     try {
@@ -141,11 +142,11 @@ export async function POST(request: Request) {
       })
     } catch (err: any) {
       // Rollback: hapus order yang dibuat tadi
-      await dbQuery('DELETE FROM order_items WHERE order_id = $1', [orderId]).catch(() => {})
-      await dbQuery('DELETE FROM orders WHERE id = $1', [orderId]).catch(() => {})
+      await dbQuery('DELETE FROM order_items WHERE order_id = ?', [orderId]).catch(() => {})
+      await dbQuery('DELETE FROM orders WHERE id = ?', [orderId]).catch(() => {})
       if (usedPromoId) {
         await dbQuery(
-          'UPDATE promo_codes SET used_count = used_count - 1 WHERE id = $1',
+          'UPDATE promo_codes SET used_count = used_count - 1 WHERE id = ?',
           [usedPromoId]
         ).catch(() => {})
       }
@@ -164,7 +165,7 @@ export async function POST(request: Request) {
     await dbQuery(
       `INSERT INTO payments (id, order_id, amount, status, payment_method, payment_channel,
         reference, va_number, payment_url, expires_at, created_at)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, NOW())`,
+       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NOW())`,
       [
         paymentId,
         orderId,
@@ -181,7 +182,7 @@ export async function POST(request: Request) {
     // 7. Log checkout
     await dbQuery(
       `INSERT INTO payment_logs (id, payment_id, event_type, message, payload, created_at)
-       VALUES ($1, $2, 'checkout_initiated', $3, $4, NOW())`,
+       VALUES (?, ?, 'checkout_initiated', ?, ?, NOW())`,
       [
         crypto.randomUUID(),
         paymentId,
@@ -193,14 +194,14 @@ export async function POST(request: Request) {
     // 8. Status history
     await dbQuery(
       `INSERT INTO transaction_status_history (payment_id, from_status, to_status, created_at)
-       VALUES ($1, 'none', 'pending', NOW())`,
+       VALUES (?, 'none', 'pending', NOW())`,
       [paymentId]
     )
 
-    // 9. Log audit
+    // 9. Log audit (audit_logs.id bertipe uuid)
     await dbQuery(
-      'INSERT INTO audit_logs (user_id, action, details, created_at) VALUES ($1, $2, $3, NOW())',
-      [user.id, 'payment_initiated', `Order ${orderId} dibuat untuk paket ${planId}`]
+      'INSERT INTO audit_logs (id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, NOW())',
+      [crypto.randomUUID(), user.id, 'payment_initiated', `Order ${orderId} dibuat untuk paket ${planId}`]
     )
 
     return NextResponse.json({
