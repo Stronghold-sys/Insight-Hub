@@ -82,13 +82,16 @@ export async function POST(req: Request) {
         onboarding_completed = COALESCE(EXCLUDED.onboarding_completed, user_profiles.onboarding_completed)
     `;
 
+    const parsedAge = age !== undefined && age !== null && String(age).trim() !== '' ? parseInt(String(age), 10) : null;
+    const safeAge = parsedAge !== null && !isNaN(parsedAge) ? parsedAge : null;
+
     await dbQuery(sql, [
       user.id,
       fullName || user.fullName || 'User Baru',
       nickname || user.nickname || 'Kamu',
       avatarUrl || user.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face',
       bio || '',
-      age !== undefined && age !== null && age !== '' ? parseInt(age) : null,
+      safeAge,
       relationshipStatus || null,
       relationshipGoal || null,
       communicationPreference || null,
@@ -97,7 +100,7 @@ export async function POST(req: Request) {
       dataSharingConsent !== undefined ? (dataSharingConsent ? 1 : 0) : 1,
       languageTone || 'genz',
       mode || 'solo',
-      onboardingCompleted !== undefined ? (onboardingCompleted ? 1 : 0) : null
+      onboardingCompleted !== undefined && onboardingCompleted !== null ? (onboardingCompleted ? 1 : 0) : null
     ]);
 
     // Insert user activity log
