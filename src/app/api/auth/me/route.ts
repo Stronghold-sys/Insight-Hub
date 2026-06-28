@@ -10,6 +10,16 @@ export async function GET() {
       return NextResponse.json({ authenticated: false, user: null });
     }
 
+    // Query full profile data (bio, age, relationship, etc.)
+    const profileRows = await dbQuery<any>(
+      `SELECT bio, age, relationship_status AS "relationshipStatus", relationship_goal AS "relationshipGoal",
+              communication_preference AS "communicationPreference", timezone, privacy_level AS "privacyLevel",
+              data_sharing_consent AS "dataSharingConsent", language_tone AS "languageTone", avatar_url AS "avatarUrl"
+       FROM user_profiles WHERE user_id = ?`,
+      [user.id]
+    );
+    const profile = profileRows.length > 0 ? profileRows[0] : {};
+
     // Query active subscription plan
     const activeSub = await dbQuery<any>(
       `SELECT plan_id FROM subscriptions 
@@ -23,6 +33,10 @@ export async function GET() {
       authenticated: true,
       user: {
         ...user,
+        // Merge full profile - profile.avatarUrl overrides the one from getSessionUser
+        // so we always get the latest stored avatar
+        ...profile,
+        avatarUrl: profile.avatarUrl || user.avatarUrl || null,
         plan
       }
     });
@@ -58,6 +72,7 @@ export async function POST(req: Request) {
     } = body;
 
     // Use INSERT ... ON CONFLICT (user_id) DO UPDATE SET to upsert user profile
+    // CRITICAL: avatar_url uses COALESCE so an empty/null value never overwrites an existing photo
     const sql = `
       INSERT INTO user_profiles (
         user_id, full_name, nickname, avatar_url, bio, age, 
@@ -68,7 +83,7 @@ export async function POST(req: Request) {
       ON CONFLICT (user_id) DO UPDATE SET
         full_name = EXCLUDED.full_name,
         nickname = EXCLUDED.nickname,
-        avatar_url = EXCLUDED.avatar_url,
+        avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), user_profiles.avatar_url),
         bio = EXCLUDED.bio,
         age = EXCLUDED.age,
         relationship_status = EXCLUDED.relationship_status,
@@ -85,11 +100,15 @@ export async function POST(req: Request) {
     const parsedAge = age !== undefined && age !== null && String(age).trim() !== '' ? parseInt(String(age), 10) : null;
     const safeAge = parsedAge !== null && !isNaN(parsedAge) ? parsedAge : null;
 
+    // Only pass avatarUrl if it is actually a non-empty value; otherwise send empty string
+    // so COALESCE in SQL will preserve the existing value
+    const safeAvatarUrl = avatarUrl && String(avatarUrl).trim() !== '' ? String(avatarUrl).trim() : '';
+
     await dbQuery(sql, [
       user.id,
       fullName || user.fullName || 'User Baru',
       nickname || user.nickname || 'Kamu',
-      avatarUrl || user.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face',
+      safeAvatarUrl,
       bio || '',
       safeAge,
       relationshipStatus || null,

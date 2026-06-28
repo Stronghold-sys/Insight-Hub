@@ -345,14 +345,22 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
               background: 'rgba(2,134,195,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, fontSize: 12, fontWeight: 700, color: '#38BDF8',
             }}>
-              <img
-                src={user?.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face'}
-                alt={user?.nickname || 'Kamu'}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face';
-                }}
-              />
+              {user?.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user?.nickname || 'Kamu'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    el.style.display = 'none';
+                    if (el.parentElement) {
+                      el.parentElement.textContent = getInitials(user?.fullName || user?.nickname || 'U');
+                    }
+                  }}
+                />
+              ) : (
+                <span>{getInitials(user?.fullName || user?.nickname || 'U')}</span>
+              )}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: 'white', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -438,15 +446,28 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
               onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--brand-blue)')}
               onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
             >
-              <div style={{ width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                <img
-                  src={user?.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face'}
-                  alt={user?.nickname || 'Kamu'}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&h=80&fit=crop&crop=face';
-                  }}
-                />
+              <div style={{
+                width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+                background: 'linear-gradient(135deg, #0286C3, #17B897)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700, color: 'white',
+              }}>
+                {user?.avatarUrl ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user?.nickname || 'Kamu'}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = 'none';
+                      if (el.parentElement) {
+                        el.parentElement.textContent = getInitials(user?.fullName || user?.nickname || 'U');
+                      }
+                    }}
+                  />
+                ) : (
+                  <span>{getInitials(user?.fullName || user?.nickname || 'U')}</span>
+                )}
               </div>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{user?.fullName || 'Kamu'}</span>
             </Link>
