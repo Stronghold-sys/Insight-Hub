@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Client } from 'pg';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -170,27 +170,28 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     throw new Error('Database connection URL is undefined.');
   }
 
-  // Strip sslmode dari URL jika non-Hyperdrive (pg handles ssl via option)
+  // Strip sslmode dari URL jika non-Hyperdrive
   if (!isHyperdrive && connectionString.includes('sslmode=')) {
     connectionString = connectionString.replace(/[?&]sslmode=[^&]+/g, '');
   }
 
-  // Gunakan transaction pooler port 6543 untuk non-Hyperdrive (lebih stabil di serverless)
+  // Gunakan transaction pooler port 6543 untuk non-Hyperdrive
   if (!isHyperdrive) {
     connectionString = connectionString.replace(':5432/', ':6543/');
   }
 
   console.log('[DB] Connecting via', isHyperdrive ? 'Hyperdrive' : 'Direct SSL', '→', connectionString.replace(/:[^:@/]+@/, ':***@'));
 
-  const pool = new Pool({
+  // Pakai Client langsung, BUKAN Pool — Hyperdrive sudah handle pooling sendiri!
+  // Pool di atas Hyperdrive menyebabkan deadlock "no open slot in pool"
+  const client = new Client({
     connectionString,
     ssl: isHyperdrive ? false : { rejectUnauthorized: false },
-    max: 1,         // 1 connection per request — Cloudflare Workers stateless
-    idleTimeoutMillis: 5000,
     connectionTimeoutMillis: 10000,
+    query_timeout: 15000,
   });
 
-  const client = await pool.connect();
+  await client.connect();
   try {
     const result = await client.query(convertedSql, params);
     return result.rows.map(normalizeKeys) as T[];
@@ -199,23 +200,9 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     console.error('Original SQL:', sql);
     console.error('Converted SQL:', convertedSql);
     console.error('Parameters:', params);
-
-    // Log error ke DB secara async, non-blocking
-    (async () => {
-      try {
-        const logSql = convertQuery('INSERT INTO error_logs (error_message, stack_trace, path) VALUES (?, ?, ?)');
-        await client.query(logSql, [
-          error instanceof Error ? error.message : String(error),
-          error instanceof Error ? (error.stack || null) : null,
-          sql.substring(0, 255),
-        ]);
-      } catch { /* abaikan error logging */ }
-    })();
-
     throw error;
   } finally {
-    client.release();
-    await pool.end().catch(() => {});
+    await client.end().catch(() => {});
   }
 }
 

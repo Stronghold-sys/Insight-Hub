@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
+import { Client } from 'pg';
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function GET(request: Request) {
@@ -64,26 +64,22 @@ export async function GET(request: Request) {
     connectionString = connectionString.replace(':5432/', ':6543/');
   }
 
-  const pool = new Pool({
+  // Pakai Client langsung, bukan Pool — Hyperdrive sudah handle pooling sendiri
+  const client = new Client({
     connectionString,
     ssl: isHyperdrive ? false : { rejectUnauthorized: false },
-    max: 1,
     connectionTimeoutMillis: 10000,
   });
 
   try {
-    const client = await pool.connect();
-    try {
-      const res = await client.query('SELECT 1 as val');
-      dbConnection = `Connected successfully via ${isHyperdrive ? 'Hyperdrive' : 'Direct SSL'} (Result: ${JSON.stringify(res.rows)})`;
-    } finally {
-      client.release();
-    }
+    await client.connect();
+    const res = await client.query('SELECT 1 as val');
+    dbConnection = `Connected successfully via ${isHyperdrive ? 'Hyperdrive' : 'Direct SSL'} (Result: ${JSON.stringify(res.rows)})`;
   } catch (err: any) {
     dbConnection = 'Failed';
     dbError = { message: err.message, code: err.code };
   } finally {
-    await pool.end().catch(() => {});
+    await client.end().catch(() => {});
   }
 
   return NextResponse.json({
