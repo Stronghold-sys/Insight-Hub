@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Menu, X, ChevronDown } from 'lucide-react'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 
 const NAV_LINKS = [
   { label: 'Fitur', href: '/fitur' },
@@ -92,8 +92,7 @@ export default function PublicNavbar({ initialUser = null }: PublicNavbarProps) 
   useEffect(() => {
     if (!user?.id) return;
 
-    const channel = supabase
-      .channel(`public:subscriptions:user:${user.id}`)
+    const channel = createSafeChannel(`public:subscriptions:user:${user.id}`)
       .on(
         'postgres_changes',
         {

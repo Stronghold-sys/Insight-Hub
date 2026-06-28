@@ -7,7 +7,7 @@ import { CreditCard, Check, ArrowRight, ShieldCheck, Download, Printer, X, Alert
 import Modal from '@/components/ui/Modal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { getRemainingTimeText } from '@/lib/dateUtils'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 import { formatPaymentMethod } from '@/lib/utils'
 
 const SUBSCRIPTION_PLANS = [
@@ -380,8 +380,7 @@ export default function LanggananPage() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.id) {
         const userId = session.user.id;
-        channel = supabase
-          .channel(`langganan:subscriptions:user:${userId}`)
+        channel = createSafeChannel(`langganan:subscriptions:user:${userId}`)
           .on(
             'postgres_changes',
             {

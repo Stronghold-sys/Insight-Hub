@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Bell, Check, Trash2, ShieldAlert, Award } from 'lucide-react'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 
 export default function NotifikasiPage() {
   const [notifs, setNotifs] = useState<any[]>([])
@@ -33,8 +33,7 @@ export default function NotifikasiPage() {
 
     // Use a unique channel name (-page suffix) so it doesn't clash with
     // the channel already opened in UserLayout for the notification badge.
-    const channel = supabase
-      .channel(`user-notifications-page-${userId}`)
+    const channel = createSafeChannel(`user-notifications-page-${userId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },

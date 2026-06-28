@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle2, AlertTriangle, Copy, Check, Clock, RefreshCw, ArrowLeft, ExternalLink } from 'lucide-react'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 
 const CHANNEL_NAMES: Record<string, string> = {
   BC: 'BCA',
@@ -64,8 +64,7 @@ export default function PaymentInstructionsPage() {
     if (!orderId) return
 
     console.log('[Realtime] Subscribing to order status updates for:', orderId)
-    const channel = supabase
-      .channel(`order-status-${orderId}`)
+    const channel = createSafeChannel(`order-status-${orderId}`)
       .on(
         'postgres_changes',
         {

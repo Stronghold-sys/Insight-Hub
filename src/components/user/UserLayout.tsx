@@ -13,7 +13,7 @@ import {
 import { MOCK_USER } from '@/lib/data'
 import { getInitials } from '@/lib/utils'
 import { LoadingState } from '@/components/ui/FeedbackStates'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: Home, href: '/dashboard' },
@@ -135,8 +135,7 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
         .catch(err => console.error('Error refreshing plan:', err))
     }
 
-    const planChannel = supabase
-      .channel(`user-plan-${user.id}`)
+    const planChannel = createSafeChannel(`user-plan-${user.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'subscriptions', filter: `user_id=eq.${user.id}` },
@@ -170,8 +169,7 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
         .catch(err => console.error('Error refreshing notifications:', err))
     }
 
-    const channel = supabase
-      .channel(`user-notifications-${user.id}`)
+    const channel = createSafeChannel(`user-notifications-${user.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },

@@ -8,3 +8,13 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export const createSafeChannel = (name: string) => {
+  const topic = `realtime:${name}`
+  const existing = supabase.getChannels().find(c => c.topic === topic)
+  if (existing) {
+    supabase.removeChannel(existing)
+  }
+  return supabase.channel(name)
+}
+

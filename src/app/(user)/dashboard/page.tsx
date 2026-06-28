@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase, createSafeChannel } from '@/lib/supabaseClient'
 import {
   TrendingUp, Activity, BookOpen, MessageSquare,
   ClipboardList, Flame, ChevronRight,
@@ -656,8 +656,7 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-live')
+    const channel = createSafeChannel('dashboard-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchDashboardData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mood_entries' }, () => fetchDashboardData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries' }, () => fetchDashboardData())
