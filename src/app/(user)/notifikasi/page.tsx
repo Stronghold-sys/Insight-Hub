@@ -64,7 +64,7 @@ export default function NotifikasiPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setNotifs(prev => prev.map(n => ({ ...n, isRead: true })));
+        setNotifs(prev => prev.map(n => ({ ...n, isRead: true, isread: true })));
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (e) {
@@ -98,7 +98,7 @@ export default function NotifikasiPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setNotifs(prev => prev.map(n => n.id === id ? { ...n, isRead: data.nextStatus } : n));
+        setNotifs(prev => prev.map(n => n.id === id ? { ...n, isRead: data.nextStatus, isread: data.nextStatus } : n));
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (e) {
@@ -125,7 +125,7 @@ export default function NotifikasiPage() {
             </div>
           </div>
 
-          {notifs.some(n => !n.isRead) && (
+          {notifs.some(n => !(n.isRead ?? n.isread)) && (
             <button
               onClick={markAllRead}
               className="btn btn-secondary btn-sm"
@@ -152,6 +152,7 @@ export default function NotifikasiPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {notifs.map(n => {
               const isHigh = n.priority === 'high'
+              const isRead = !!(n.isRead ?? n.isread)
               return (
                 <div
                   key={n.id}
@@ -161,8 +162,8 @@ export default function NotifikasiPage() {
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: 16,
-                    borderLeft: isHigh ? '4px solid var(--error)' : (n.isRead ? '1px solid var(--border-subtle)' : '3px solid var(--brand-blue)'),
-                    background: n.isRead ? 'var(--surface)' : 'rgba(2,134,195,0.02)'
+                    borderLeft: isHigh ? '4px solid var(--error)' : (isRead ? '1px solid var(--border-subtle)' : '3px solid var(--brand-blue)'),
+                    background: isRead ? 'var(--surface)' : 'rgba(2,134,195,0.02)'
                   }}
                 >
                   <div style={{
@@ -176,7 +177,7 @@ export default function NotifikasiPage() {
 
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 4 }}>
-                      <h4 style={{ fontSize: 14, fontWeight: n.isRead ? 700 : 800, color: 'var(--text-primary)', margin: 0 }}>{n.title}</h4>
+                      <h4 style={{ fontSize: 14, fontWeight: isRead ? 700 : 800, color: 'var(--text-primary)', margin: 0 }}>{n.title}</h4>
                       <span style={{ fontSize: 10, fontWeight: 800, color: isHigh ? 'var(--error)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                         {isHigh ? 'Tinggi' : ''}
                       </span>
@@ -188,7 +189,7 @@ export default function NotifikasiPage() {
                         onClick={() => toggleRead(n.id)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'var(--brand-blue)', padding: 0 }}
                       >
-                        {n.isRead ? 'Tandai Belum Dibaca' : 'Tandai Sudah Dibaca'}
+                        {isRead ? 'Tandai Belum Dibaca' : 'Tandai Sudah Dibaca'}
                       </button>
                       <button
                         onClick={() => deleteNotif(n.id)}

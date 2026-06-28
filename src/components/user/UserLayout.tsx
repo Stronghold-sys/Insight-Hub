@@ -97,7 +97,10 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
               .then(res => res.json())
               .then(nData => {
                 if (nData.success && nData.notifications) {
-                  const unread = nData.notifications.filter((n: any) => !n.isRead).length
+                  const unread = nData.notifications.filter((n: any) => {
+                    const isRead = n.isRead ?? n.isread;
+                    return isRead !== true && isRead !== 'true' && isRead !== 1 && isRead !== '1';
+                  }).length
                   setNotifCount(unread)
                 }
               })
@@ -162,7 +165,10 @@ export default function UserLayout({ children, activeNav }: UserLayoutProps) {
         .then(res => res.json())
         .then(nData => {
           if (nData.success && nData.notifications) {
-            const unread = nData.notifications.filter((n: any) => !n.isRead).length
+            const unread = nData.notifications.filter((n: any) => {
+              const isRead = n.isRead ?? n.isread;
+              return isRead !== true && isRead !== 'true' && isRead !== 1 && isRead !== '1';
+            }).length
             setNotifCount(unread)
           }
         })

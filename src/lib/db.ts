@@ -145,7 +145,9 @@ export function normalizeKeys(row: any) {
     datasharingconsent: 'dataSharingConsent',
     languagetone: 'languageTone',
     isactive: 'isActive',
-    userid: 'userId'
+    userid: 'userId',
+    isread: 'isRead',
+    is_read: 'isRead'
   };
 
   const normalized = { ...row };

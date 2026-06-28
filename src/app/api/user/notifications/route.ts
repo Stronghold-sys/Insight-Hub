@@ -95,10 +95,14 @@ export async function GET() {
       message = cleanText(message)
       title = cleanText(title)
 
+      const rawIsRead = notif.isRead ?? notif.isread ?? notif.is_read;
+      const isRead = rawIsRead === true || rawIsRead === 'true' || rawIsRead === 1 || rawIsRead === '1';
+
       sanitizedNotifications.push({
         ...notif,
         title,
-        message
+        message,
+        isRead
       })
     }
 
@@ -139,11 +143,13 @@ export async function POST(req: Request) {
 
     if (action === 'toggle_read') {
       const current = await dbQuery(
-        'SELECT is_read FROM notifications WHERE user_id = ? AND id = ?',
+        'SELECT is_read as "isRead" FROM notifications WHERE user_id = ? AND id = ?',
         [user.id, id]
       );
       if (current.length > 0) {
-        const nextStatus = !current[0].is_read;
+        const rawIsRead = current[0].isRead ?? current[0].isread ?? current[0].is_read;
+        const currentStatus = rawIsRead === true || rawIsRead === 'true' || rawIsRead === 1 || rawIsRead === '1';
+        const nextStatus = !currentStatus;
         await dbQuery(
           'UPDATE notifications SET is_read = ? WHERE user_id = ? AND id = ?',
           [nextStatus, user.id, id]
