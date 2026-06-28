@@ -132,8 +132,10 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Error during register API:', error)
+    const errMsg = error instanceof Error ? error.message : String(error)
+    const errStack = error instanceof Error ? error.stack : undefined
     return NextResponse.json(
-      { message: 'Gagal membuat akun, coba lagi beberapa saat.' },
+      { message: 'Gagal membuat akun, coba lagi beberapa saat.', _debug: errMsg, _stack: errStack },
       { status: 500 }
     )
   }
