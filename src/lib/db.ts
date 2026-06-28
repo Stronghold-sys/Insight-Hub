@@ -160,9 +160,11 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     if (ctx?.env && (ctx.env as any).HYPERDRIVE?.connectionString) {
       connectionString = (ctx.env as any).HYPERDRIVE.connectionString;
       isHyperdrive = true;
+      console.log('[DB] Using Hyperdrive binding');
     }
   } catch (e) {
     // ignore — tidak di Cloudflare Workers environment
+    console.log('[DB] Not in Cloudflare Workers, using direct connection');
   }
 
   if (!connectionString) {
@@ -170,33 +172,35 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []): Promise
     throw new Error('Database connection URL is undefined.');
   }
 
-  // Strip sslmode dari URL jika non-Hyperdrive
-  if (!isHyperdrive && connectionString.includes('sslmode=')) {
-    connectionString = connectionString.replace(/[?&]sslmode=[^&]+/g, '');
-  }
+  let finalConnectionString = connectionString;
 
-  // Gunakan transaction pooler port 6543 untuk non-Hyperdrive
   if (!isHyperdrive) {
-    connectionString = connectionString.replace(':5432/', ':6543/');
+    // Untuk koneksi langsung (lokal/development), gunakan port 6543 (transaction pooler)
+    // dan strip sslmode dari URL karena akan diatur via ssl option
+    finalConnectionString = finalConnectionString.replace(/[?&]sslmode=[^&]+/g, '');
+    finalConnectionString = finalConnectionString.replace(':5432/', ':6543/');
   }
 
-  console.log('[DB] Connecting via', isHyperdrive ? 'Hyperdrive' : 'Direct SSL', '→', connectionString.replace(/:[^:@/]+@/, ':***@'));
+  console.log('[DB] Connecting via', isHyperdrive ? 'Hyperdrive' : 'Direct (port 6543)', '→', finalConnectionString.replace(/:[^:@/]+@/, ':***@'));
 
-  const sqlClient = postgres(connectionString, {
+  const sqlClient = postgres(finalConnectionString, {
+    // Hyperdrive mengelola koneksi SSL sendiri; untuk direct connection gunakan SSL tanpa verifikasi
     ssl: isHyperdrive ? false : { rejectUnauthorized: false },
+    // prepare:false WAJIB untuk Hyperdrive agar kompatibel dengan connection pooler
+    prepare: false,
     max: 1,
-    connect_timeout: 10,
-    idle_timeout: 5,
+    connect_timeout: 15,
+    idle_timeout: 10,
   });
 
   try {
     const result = await sqlClient.unsafe(convertedSql, params);
     return result.map(normalizeKeys) as T[];
   } catch (error) {
-    console.error('Database Query Error:', error);
-    console.error('Original SQL:', sql);
-    console.error('Converted SQL:', convertedSql);
-    console.error('Parameters:', params);
+    console.error('[DB] Database Query Error:', error);
+    console.error('[DB] Original SQL:', sql);
+    console.error('[DB] Converted SQL:', convertedSql);
+    console.error('[DB] Parameters:', params);
     throw error;
   } finally {
     await sqlClient.end().catch(() => {});

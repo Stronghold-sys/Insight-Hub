@@ -245,22 +245,6 @@ function MoodChart({ moodHistory }: { moodHistory: any[] }) {
 // RECENT INSIGHTS
 // ========================
 function RecentInsights({ insights }: { insights: any[] }) {
-  // Fallback insights jika user belum mengisi assessment
-  const fallbackInsights = [
-    {
-      title: 'Regulasi Emosi',
-      dominant_category: 'Mulai dengan Love Language test biar ngerti cara pasangan ngungkapin cinta.',
-      date: 'Tips'
-    },
-    {
-      title: 'Pola Komunikasi',
-      dominant_category: 'Paste chat yang bikin kamu overthinking di Chat Analyzer buat dapet breakdown asertif.',
-      date: 'Tips'
-    }
-  ];
-
-  const displayInsights = insights.length > 0 ? insights : fallbackInsights;
-
   return (
     <div className="card" style={{ padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -268,28 +252,35 @@ function RecentInsights({ insights }: { insights: any[] }) {
         <Link href="/insights" className="btn btn-ghost btn-sm">Selengkapnya</Link>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {displayInsights.map((insight, i) => (
-          <div key={i} style={{
-            padding: 14, borderRadius: 8, borderLeft: '3px solid var(--brand-blue)',
-            background: 'rgba(2,134,195,0.05)',
-            display: 'flex', gap: 12, alignItems: 'flex-start',
-          }}>
-            <TrendingUp size={16} color="var(--brand-blue)" style={{ marginTop: 2, flexShrink: 0 }} />
-            <div style={{ flex: 1 }}>
-              <strong style={{ fontSize: 13, color: 'var(--text-primary)', display: 'block', marginBottom: 2 }}>
-                {insight.title}
-              </strong>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                {insight.dominant_category}
-              </p>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'inline-block' }}>
-                Dibuat: {insight.date}
-              </span>
+      {insights.length === 0 ? (
+        <div style={{ padding: 20, textAlign: 'center', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: 8 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>Belum ada analisis AI. Selesaikan tes assessment pertama kamu!</p>
+          <Link href="/assessment" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', padding: '4px 10px', fontSize: 11 }}>Mulai Tes</Link>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {insights.map((insight, i) => (
+            <div key={i} style={{
+              padding: 14, borderRadius: 8, borderLeft: '3px solid var(--brand-blue)',
+              background: 'rgba(2,134,195,0.05)',
+              display: 'flex', gap: 12, alignItems: 'flex-start',
+            }}>
+              <TrendingUp size={16} color="var(--brand-blue)" style={{ marginTop: 2, flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <strong style={{ fontSize: 13, color: 'var(--text-primary)', display: 'block', marginBottom: 2 }}>
+                  {insight.title}
+                </strong>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                  {insight.dominant_category}
+                </p>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'inline-block' }}>
+                  Dibuat: {insight.date}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

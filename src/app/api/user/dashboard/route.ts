@@ -25,9 +25,8 @@ export async function GET() {
     // 3. Get total journal entries
     const journalCountRes = await dbQuery(
       `SELECT COUNT(*) as count 
-       FROM journal_entries je 
-       JOIN journals j ON je.journal_id = j.id::text 
-       WHERE j.user_id = ?::uuid`,
+       FROM journals 
+       WHERE user_id = ?::uuid AND deleted_at IS NULL`,
       [user.id]
     );
     const totalJournalEntries = journalCountRes[0]?.count || 0;
@@ -39,7 +38,7 @@ export async function GET() {
        WHERE user_id = ?::text AND created_at >= (NOW() - INTERVAL '30 days')`,
       [user.id]
     );
-    const streak = streakRes[0]?.streak || 1; // Default to 1 if user just onboarded
+    const streak = streakRes[0]?.streak || 0; // Default to 0 if user just onboarded
 
     // 5. Get today's mood
     const todayMoodRes = await dbQuery(
@@ -65,11 +64,10 @@ export async function GET() {
 
     // 7. Get recent journal entries (last 3)
     const recentJournals = await dbQuery(
-      `SELECT je.title, je.mood, je.content, je.tag, TO_CHAR(je.created_at, 'YYYY-MM-DD') as date 
-       FROM journal_entries je 
-       JOIN journals j ON je.journal_id = j.id::text 
-       WHERE j.user_id = ?::uuid 
-       ORDER BY je.created_at DESC 
+      `SELECT id, title, mood, content, category_id as tag, TO_CHAR(created_at, 'YYYY-MM-DD') as date 
+       FROM journals 
+       WHERE user_id = ?::uuid AND deleted_at IS NULL 
+       ORDER BY created_at DESC 
        LIMIT 3`,
       [user.id]
     );

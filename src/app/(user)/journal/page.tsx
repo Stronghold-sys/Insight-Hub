@@ -5,39 +5,10 @@ import Link from 'next/link'
 import {
   Plus, Search, BookOpen, Tag, Calendar,
   ChevronRight, X, Edit3, Flag, Star, AlertTriangle,
-  MessageCircle, Heart, TrendingUp, Trash2
+  MessageCircle, Heart, TrendingUp, Trash2, ArrowLeft, RefreshCw
 } from 'lucide-react'
 import { formatDate, getMoodColor } from '@/lib/utils'
 import Modal from '@/components/ui/Modal'
-
-const INITIAL_MOCK_JOURNALS = [
-  {
-    id: '1',
-    title: 'Ngobrol yang akhirnya berhasil',
-    content: 'Tadi gue akhirnya berani ngomong sesuatu yang udah lama gue tahan. Rasanya kayak lepas beban yang berat banget. Ternyata caranya beneran ngaruh — gue pakai "I feel" statement kayak yang gue pelajarin, dan responnya jauh lebih baik dari yang gue bayangin.',
-    mood: 'calm',
-    date: '2026-06-22',
-    tags: ['komunikasi', 'keberanian', 'green flag'],
-    entryType: 'reconciliation',
-    relatedPerson: 'Pasangan',
-    intensity: 7,
-    isStarred: true,
-    isFlagged: false,
-  },
-  {
-    id: '2',
-    title: 'Hari yang bikin overthinking',
-    content: 'Gue nggak dapat respons selama 4 jam dan langsung assume yang buruk-buruk. Ini pola lama gue yang muncul lagi. Gue tau ini anxious attachment, tapi tetep aja susah dipaksain berhenti.',
-    mood: 'anxious',
-    date: '2026-06-20',
-    tags: ['overthinking', 'anxious', 'pola'],
-    entryType: 'reflection',
-    relatedPerson: null,
-    intensity: 8,
-    isStarred: false,
-    isFlagged: true,
-  },
-]
 
 const ENTRY_TYPES = [
   { id: 'semua', label: 'Semua' },
@@ -62,19 +33,8 @@ interface JournalEntry {
   date: string
   tags: string[]
   entryType: string
-  relatedPerson?: string | null
-  intensity?: number
   isStarred: boolean
-  isFlagged: boolean
-}
-
-interface RawJournalEntry {
-  id: string
-  title: string
-  content: string
-  mood: string
-  date: string
-  tag?: string | null
+  isPinned: boolean
 }
 
 export default function JournalPage() {
@@ -82,43 +42,35 @@ export default function JournalPage() {
   const [activeFilter, setActiveFilter] = useState('semua')
   const [showNewForm, setShowNewForm] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [newEntry, setNewEntry] = useState({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' })
   const [saved, setSaved] = useState(false)
   const [deletedToast, setDeletedToast] = useState(false)
+  const [showDeletedOnly, setShowDeletedOnly] = useState(false)
   
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshCount, setRefreshCount] = useState(0)
 
-  useEffect(() => {
-    const fetchEntries = async () => {
-      try {
-        const res = await fetch('/api/journal')
-        const data = await res.json()
-        if (data.success && data.entries.length > 0) {
-          // Map database fields to UI fields
-          const mapped: JournalEntry[] = data.entries.map((e: RawJournalEntry) => ({
-            id: e.id,
-            title: e.title,
-            content: e.content,
-            mood: e.mood,
-            date: e.date,
-            tags: e.tag ? e.tag.split(',').map((t: string) => t.trim()) : [],
-            entryType: e.tag && e.tag.toLowerCase().includes('konflik') ? 'conflict' : 'reflection',
-            isStarred: false,
-            isFlagged: false,
-          }))
-          setEntries(mapped)
-        } else {
-          setEntries(INITIAL_MOCK_JOURNALS)
-        }
-      } catch (e) {
-        console.error(e)
-        setEntries(INITIAL_MOCK_JOURNALS)
-      } finally {
-        setLoading(false)
+  const fetchEntries = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/journal?showDeleted=${showDeletedOnly}`)
+      const data = await res.json()
+      if (data.success) {
+        setEntries(data.entries || [])
+      } else {
+        setEntries([])
       }
+    } catch (e) {
+      console.error(e)
+      setEntries([])
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchEntries()
 
     if (typeof window !== 'undefined' && window.location.search.includes('tambah=true')) {
@@ -127,7 +79,7 @@ export default function JournalPage() {
       }, 0)
       return () => clearTimeout(timer)
     }
-  }, [refreshCount])
+  }, [refreshCount, showDeletedOnly])
 
   const filtered = entries.filter(e => {
     const matchSearch = e.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -141,10 +93,12 @@ export default function JournalPage() {
     if (!newEntry.title || !newEntry.content) return
 
     const payload = {
+      id: editingId || undefined,
       title: newEntry.title,
       content: newEntry.content,
       mood: newEntry.mood,
-      tag: newEntry.tags || (newEntry.entryType === 'conflict' ? 'Konflik' : 'Refleksi')
+      category_id: newEntry.entryType,
+      tags: newEntry.tags
     }
 
     try {
@@ -157,6 +111,7 @@ export default function JournalPage() {
       if (res.ok) {
         setSaved(true)
         setShowNewForm(false)
+        setEditingId(null)
         setNewEntry({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' })
         setRefreshCount(c => c + 1)
         setTimeout(() => setSaved(false), 3000)
@@ -166,18 +121,79 @@ export default function JournalPage() {
     }
   }
 
+  const handleStartEdit = (entry: JournalEntry) => {
+    setEditingId(entry.id)
+    setNewEntry({
+      title: entry.title,
+      content: entry.content,
+      entryType: entry.entryType,
+      mood: entry.mood,
+      tags: entry.tags ? entry.tags.join(', ') : ''
+    })
+    setSelectedEntry(null)
+    setShowNewForm(true)
+  }
+
+  const handleToggleFavorite = async (entry: JournalEntry) => {
+    const nextStarred = !entry.isStarred;
+    try {
+      const res = await fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: entry.id,
+          title: entry.title,
+          content: entry.content,
+          mood: entry.mood,
+          category_id: entry.entryType,
+          is_favorite: nextStarred,
+          is_pinned: entry.isPinned,
+          tags: entry.tags
+        })
+      });
+      if (res.ok) {
+        setRefreshCount(c => c + 1);
+        if (selectedEntry && selectedEntry.id === entry.id) {
+          setSelectedEntry(prev => prev ? { ...prev, isStarred: nextStarred } : null);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  const handleTogglePin = async (entry: JournalEntry) => {
+    const nextPinned = !entry.isPinned;
+    try {
+      const res = await fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: entry.id,
+          title: entry.title,
+          content: entry.content,
+          mood: entry.mood,
+          category_id: entry.entryType,
+          is_favorite: entry.isStarred,
+          is_pinned: nextPinned,
+          tags: entry.tags
+        })
+      });
+      if (res.ok) {
+        setRefreshCount(c => c + 1);
+        if (selectedEntry && selectedEntry.id === entry.id) {
+          setSelectedEntry(prev => prev ? { ...prev, isPinned: nextPinned } : null);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   const handleDelete = async (entryId: string) => {
     if (!window.confirm('Apakah kamu yakin ingin menghapus entri jurnal ini?')) return
 
     try {
-      if (entryId === '1' || entryId === '2') {
-        setEntries(prev => prev.filter(e => e.id !== entryId))
-        setSelectedEntry(null)
-        setDeletedToast(true)
-        setTimeout(() => setDeletedToast(false), 3000)
-        return
-      }
-
       const res = await fetch(`/api/journal?id=${entryId}`, {
         method: 'DELETE',
       })
@@ -196,19 +212,72 @@ export default function JournalPage() {
     }
   }
 
+  const handleRestore = async (entryId: string) => {
+    try {
+      const res = await fetch(`/api/journal?id=${entryId}&action=restore`, {
+        method: 'DELETE',
+      })
+
+      if (res.ok) {
+        setSelectedEntry(null)
+        setRefreshCount(c => c + 1)
+        alert('Jurnal berhasil dipulihkan!')
+      } else {
+        alert('Gagal memulihkan entri jurnal')
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleHardDelete = async (entryId: string) => {
+    if (!window.confirm('PERINGATAN: Entri jurnal ini akan dihapus secara PERMANEN dari database dan tidak dapat dipulihkan. Lanjutkan?')) return
+
+    try {
+      const res = await fetch(`/api/journal?id=${entryId}&action=hard`, {
+        method: 'DELETE',
+      })
+
+      if (res.ok) {
+        setSelectedEntry(null)
+        setRefreshCount(c => c + 1)
+        alert('Jurnal dihapus permanen!')
+      } else {
+        alert('Gagal menghapus permanen entri jurnal')
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   return (
     <div className="animate-fadein">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, marginBottom: 4 }}>Journal Relasi</h1>
+          <h1 style={{ fontSize: 22, marginBottom: 4 }}>
+            {showDeletedOnly ? 'Tempat Sampah Jurnal' : 'Journal Relasi'}
+          </h1>
           <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-            Tempat nulis, merekam, dan refleksi kejadian penting dalam relasimu.
+            {showDeletedOnly 
+              ? 'Daftar entri jurnal yang telah dihapus. Kamu bisa memulihkan atau menghapusnya permanen.' 
+              : 'Tempat nulis, merekam, dan refleksi kejadian penting dalam relasimu.'}
           </p>
         </div>
-        <button onClick={() => setShowNewForm(true)} className="btn btn-primary">
-          <Plus size={14} /> Tulis baru
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button 
+            onClick={() => setShowDeletedOnly(!showDeletedOnly)} 
+            className="btn btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            {showDeletedOnly ? 'Kembali ke Jurnal' : 'Buka Sampah'}
+          </button>
+          {!showDeletedOnly && (
+            <button onClick={() => { setEditingId(null); setNewEntry({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' }); setShowNewForm(true); }} className="btn btn-primary">
+              <Plus size={14} /> Tulis baru
+            </button>
+          )}
+        </div>
       </div>
 
       {saved && (
@@ -224,19 +293,21 @@ export default function JournalPage() {
       )}
 
       {/* Stats strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Total Entri', value: entries.length },
-          { label: 'Bintang', value: entries.filter(e => e.isStarred).length },
-          { label: 'Perlu Perhatian', value: entries.filter(e => e.isFlagged).length },
-          { label: 'Bulan Ini', value: Math.max(1, entries.length) },
-        ].map(s => (
-          <div key={s.label} className="card" style={{ padding: '14px 16px', textAlign: 'center' }}>
-            <p style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{s.value}</p>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>{s.label}</p>
-          </div>
-        ))}
-      </div>
+      {!showDeletedOnly && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+          {[
+            { label: 'Total Entri', value: entries.length },
+            { label: 'Bintang', value: entries.filter(e => e.isStarred).length },
+            { label: 'Disematkan', value: entries.filter(e => e.isPinned).length },
+            { label: 'Bulan Ini', value: entries.length },
+          ].map(s => (
+            <div key={s.label} className="card" style={{ padding: '14px 16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>{s.value}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Search & filter */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -264,15 +335,27 @@ export default function JournalPage() {
         ))}
       </div>
 
-      {/* Journal list */}
-      {filtered.length === 0 ? (
-        <div className="empty-state">
-          <BookOpen size={36} color="var(--text-muted)" />
-          <h3>Belum ada entri di sini</h3>
-          <p>Tulis pengalaman pertamamu hari ini. Nggak perlu panjang-panjang.</p>
-          <button onClick={() => setShowNewForm(true)} className="btn btn-primary" style={{ marginTop: 8 }}>
-            <Plus size={14} /> Mulai nulis
-          </button>
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0', gap: 10 }}>
+          <RefreshCw className="animate-spin" size={24} color="var(--brand-blue)" />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Memuat jurnal...</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state animate-fadein" style={{ padding: 48, background: 'var(--surface)', borderRadius: 12, border: '1px dashed var(--border)', textAlign: 'center' }}>
+          <BookOpen size={48} color="var(--text-muted)" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+            {showDeletedOnly ? 'Tempat Sampah Kosong' : 'Belum Ada Jurnal'}
+          </h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px', maxWidth: 400, marginLeft: 'auto', marginRight: 'auto' }}>
+            {showDeletedOnly 
+              ? 'Bagus sekali! Gak ada jurnal yang terbuang saat ini.' 
+              : 'Tulis refleksi harian, konflik, atau momen spesial bersama pasangan di sini untuk membangun self-awareness.'}
+          </p>
+          {!showDeletedOnly && (
+            <button onClick={() => { setEditingId(null); setNewEntry({ title: '', content: '', entryType: 'reflection', mood: 'neutral', tags: '' }); setShowNewForm(true); }} className="btn btn-primary">
+              <Plus size={14} /> Mulai Menulis
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -282,8 +365,8 @@ export default function JournalPage() {
             return (
               <div
                 key={entry.id}
-                className="card card-hover"
-                style={{ padding: 20, cursor: 'pointer' }}
+                className="card card-hover animate-fadein"
+                style={{ padding: 20, cursor: 'pointer', position: 'relative' }}
                 onClick={() => setSelectedEntry(entry)}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
@@ -297,10 +380,17 @@ export default function JournalPage() {
 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
-                      <h3 style={{ fontSize: 15, margin: 0, flex: 1, lineHeight: 1.4 }}>{entry.title}</h3>
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        {entry.isStarred && <Star size={14} fill="#F5A623" color="#F5A623" />}
-                        {entry.isFlagged && <Flag size={14} color="var(--error)" />}
+                      <h3 style={{ fontSize: 15, margin: 0, flex: 1, lineHeight: 1.4, fontWeight: 700 }}>
+                        {entry.isPinned && <span style={{ color: 'var(--brand-blue)', marginRight: 6 }}>📌</span>}
+                        {entry.title}
+                      </h3>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                        <button onClick={() => handleToggleFavorite(entry)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                          <Star size={15} fill={entry.isStarred ? '#F5A623' : 'none'} color={entry.isStarred ? '#F5A623' : 'var(--text-muted)'} />
+                        </button>
+                        <button onClick={() => handleTogglePin(entry)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                          <span style={{ fontSize: 12, opacity: entry.isPinned ? 1 : 0.4 }}>📌</span>
+                        </button>
                       </div>
                     </div>
 
@@ -315,12 +405,6 @@ export default function JournalPage() {
                       </div>
                       <span style={{ color: 'var(--border)', fontSize: 12 }}>·</span>
                       <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.date}</span>
-                      {entry.relatedPerson && (
-                        <>
-                          <span style={{ color: 'var(--border)', fontSize: 12 }}>·</span>
-                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.relatedPerson}</span>
-                        </>
-                      )}
                       {entry.tags && entry.tags.map((tag: string) => (
                         <span key={tag} className="tag" style={{ fontSize: 11 }}>{tag}</span>
                       ))}
@@ -334,7 +418,7 @@ export default function JournalPage() {
       )}
 
       {/* New entry modal */}
-      <Modal isOpen={showNewForm} onClose={() => setShowNewForm(false)} maxWidth={600} title="Tulis entri jurnal">
+      <Modal isOpen={showNewForm} onClose={() => setShowNewForm(false)} maxWidth={600} title={editingId ? "Edit entri jurnal" : "Tulis entri jurnal"}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
             <label className="label" htmlFor="entry-title">Judul</label>
@@ -411,7 +495,7 @@ export default function JournalPage() {
               className="btn btn-primary"
               style={{ flex: 2, justifyContent: 'center', opacity: (newEntry.title && newEntry.content) ? 1 : 0.5 }}
             >
-              Simpan entri
+              {editingId ? 'Simpan Perubahan' : 'Simpan entri'}
             </button>
           </div>
         </div>
@@ -433,6 +517,7 @@ export default function JournalPage() {
                     )
                   })()}
                   {selectedEntry.isStarred && <Star size={14} fill="#F5A623" color="#F5A623" style={{ marginTop: 3 }} />}
+                  {selectedEntry.isPinned && <span style={{ fontSize: 12, marginTop: 1 }}>📌</span>}
                 </div>
                 <h2 style={{ fontSize: 20, margin: 0, lineHeight: 1.3 }}>{selectedEntry.title}</h2>
               </div>
@@ -445,12 +530,6 @@ export default function JournalPage() {
               </div>
               <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>·</span>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{selectedEntry.date}</span>
-              {selectedEntry.relatedPerson && (
-                <>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>·</span>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{selectedEntry.relatedPerson}</span>
-                </>
-              )}
             </div>
 
             <p style={{ fontSize: 14, lineHeight: 1.8, color: 'var(--text-primary)', marginBottom: 20 }}>
@@ -465,19 +544,49 @@ export default function JournalPage() {
 
             <div style={{
               display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 12,
+              justifyContent: 'space-between',
+              alignItems: 'center',
               marginTop: 32,
               paddingTop: 16,
               borderTop: '1px solid var(--border-subtle)'
             }}>
-              <button
-                onClick={() => handleDelete(selectedEntry.id)}
-                className="btn btn-ghost"
-                style={{ color: 'var(--error)', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Trash2 size={15} /> Hapus Entri
-              </button>
+              <div>
+                {showDeletedOnly ? (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => handleRestore(selectedEntry.id)}
+                      className="btn btn-secondary btn-sm"
+                      style={{ color: 'var(--teal)' }}
+                    >
+                      Puluhkan
+                    </button>
+                    <button
+                      onClick={() => handleHardDelete(selectedEntry.id)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--error)' }}
+                    >
+                      <Trash2 size={13} /> Hapus Permanen
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => handleStartEdit(selectedEntry)}
+                      className="btn btn-secondary btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Edit3 size={13} /> Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(selectedEntry.id)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--error)', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Trash2 size={13} /> Hapus
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedEntry(null)}
                 className="btn btn-secondary"

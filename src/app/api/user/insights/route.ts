@@ -86,9 +86,7 @@ export async function GET() {
 
     // 5. Jurnal count
     const journalCountRes = await dbQuery(
-      `SELECT COUNT(*) as count FROM journal_entries je
-       JOIN journals j ON je.journal_id = j.id
-       WHERE j.user_id = ?`,
+      `SELECT COUNT(*) as count FROM journals WHERE user_id = ? AND deleted_at IS NULL`,
       [user.id]
     )
     const totalJournals = (journalCountRes as any[])[0]?.count || 0

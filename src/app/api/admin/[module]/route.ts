@@ -20,7 +20,7 @@ export async function GET(
       // 1. Ambil counts
       const userCount = await dbQuery('SELECT COUNT(*) as count FROM users');
       const activeCount = await dbQuery('SELECT COUNT(*) as count FROM users WHERE is_active = 1');
-      const journalCount = await dbQuery('SELECT COUNT(*) as count FROM journal_entries');
+      const journalCount = await dbQuery('SELECT COUNT(*) as count FROM journals WHERE deleted_at IS NULL');
       const chatCount = await dbQuery('SELECT COUNT(*) as count FROM chat_analysis');
       const ticketCount = await dbQuery('SELECT COUNT(*) as count FROM support_tickets');
 

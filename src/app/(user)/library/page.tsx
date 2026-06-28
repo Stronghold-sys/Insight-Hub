@@ -138,6 +138,9 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<'guides' | 'templates' | 'glossary'>('guides')
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null)
 
+  const [guides, setGuides] = useState<any[]>(MINI_GUIDES)
+  const [templates, setTemplates] = useState<any[]>(TEMPLATES)
+
   useEffect(() => {
     const fetchSavedGuides = async () => {
       try {
@@ -153,7 +156,22 @@ export default function LibraryPage() {
         console.error('Gagal mengambil bookmark:', e)
       }
     }
+    
+    const fetchLibraryData = async () => {
+      try {
+        const res = await fetch('/api/library')
+        const data = await res.json()
+        if (data.success) {
+          if (data.guides && data.guides.length > 0) setGuides(data.guides)
+          if (data.templates && data.templates.length > 0) setTemplates(data.templates)
+        }
+      } catch (e) {
+        console.error('Gagal memuat data library:', e)
+      }
+    }
+
     fetchSavedGuides()
+    fetchLibraryData()
   }, [])
 
   const handleCopy = (text: string, id: string) => {
@@ -187,13 +205,13 @@ export default function LibraryPage() {
     }
   }
 
-  const filteredGuides = MINI_GUIDES.filter(g => {
+  const filteredGuides = guides.filter(g => {
     const matchSearch = g.title.toLowerCase().includes(searchQuery.toLowerCase()) || g.desc.toLowerCase().includes(searchQuery.toLowerCase())
     const matchCategory = activeCategory === 'Semua' || g.category === activeCategory
     return matchSearch && matchCategory
   })
 
-  const filteredTemplates = TEMPLATES.filter(t => {
+  const filteredTemplates = templates.filter(t => {
     const matchSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.text.toLowerCase().includes(searchQuery.toLowerCase())
     return matchSearch
   })
@@ -327,7 +345,7 @@ export default function LibraryPage() {
                       <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--border-subtle)', paddingTop: 16, animation: 'fadeIn 0.2s ease' }}>
                         <p style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 12 }}>Tips Praktis:</p>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
-                          {guide.tips.map((tip, i) => (
+                          {guide.tips.map((tip: string, i: number) => (
                             <div key={i} style={{ display: 'flex', gap: 8, padding: '8px 12px', background: 'rgba(255,255,255,0.4)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.4)', fontSize: 12.5, color: 'var(--text-primary)', alignItems: 'flex-start', backdropFilter: 'blur(8px)' }}>
                               <CheckCircle size={13} color="var(--teal)" style={{ flexShrink: 0, marginTop: 1 }} />
                               {tip}
@@ -362,7 +380,7 @@ export default function LibraryPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {tmpl.tags.map(tag => (
+                  {tmpl.tags.map((tag: string) => (
                     <span key={tag} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: 'rgba(2,134,195,0.06)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>#{tag}</span>
                   ))}
                 </div>

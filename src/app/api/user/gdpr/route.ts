@@ -13,9 +13,6 @@ export async function GET() {
     const [profile] = await dbQuery('SELECT * FROM user_profiles WHERE user_id = ?', [user.id]);
     const moods = await dbQuery('SELECT * FROM mood_entries WHERE user_id = ?', [user.id]);
     const journals = await dbQuery('SELECT * FROM journals WHERE user_id = ?', [user.id]);
-    const journalEntries = journals.length > 0 
-      ? await dbQuery('SELECT * FROM journal_entries WHERE journal_id IN (?)', [journals.map(j => j.id)]) 
-      : [];
     const chatSessions = await dbQuery('SELECT * FROM chat_sessions WHERE user_id = ?', [user.id]);
     const assessmentResults = await dbQuery('SELECT * FROM analysis_results WHERE user_id = ?', [user.id]);
 
@@ -28,10 +25,7 @@ export async function GET() {
       },
       profile: profile || null,
       moodLogs: moods,
-      journals: journals.map(j => ({
-        ...j,
-        entries: journalEntries.filter((e: any) => e.journal_id === j.id)
-      })),
+      journals: journals,
       chatSessions,
       assessmentResults
     };

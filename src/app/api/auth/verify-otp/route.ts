@@ -130,7 +130,7 @@ export async function POST(request: Request) {
           [userId, 'user']
         ),
         dbQuery(
-          'INSERT INTO user_profiles (user_id, full_name, nickname, avatar_url, age, relationship_status, language_tone, mode) VALUES (?, ?, ?, ?, 20, "Single", "genz", "solo")',
+          'INSERT INTO user_profiles (user_id, full_name, nickname, avatar_url) VALUES (?, ?, ?, ?)',
           [
             userId,
             pendingUser.full_name,
@@ -139,22 +139,8 @@ export async function POST(request: Request) {
           ]
         ),
         dbQuery(
-          'INSERT INTO journals (id, user_id, title, content) VALUES (?, ?, ?, ?)',
-          [crypto.randomUUID(), userId, `Jurnal ${pendingUser.full_name}`, '']
-        ),
-        dbQuery(
           'INSERT INTO subscriptions (id, user_id, plan_id, status, starts_at, ends_at) VALUES (?, ?, "free", "active", NOW(), NULL)',
           [crypto.randomUUID(), userId]
-        ),
-        dbQuery(
-          'INSERT INTO notifications (id, user_id, title, message, is_read, priority) VALUES (?, ?, ?, ?, false, ?)',
-          [
-            crypto.randomUUID(),
-            userId,
-            'Selamat Datang!',
-            `Halo ${pendingUser.full_name}! Selamat bergabung di Insight Hub. Platform self-awareness berbasis sains ini siap membantumu kenali diri dan dinamika relasi kamu.`,
-            'medium',
-          ]
         )
       ])
 

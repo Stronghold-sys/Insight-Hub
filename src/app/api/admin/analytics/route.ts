@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const [totalUsersRes, totalAssessmentsRes, totalJournalsRes, totalChatsRes, totalMoodsRes, premiumRes] = await Promise.all([
       safeQuery('SELECT COUNT(*) as count FROM users', [], [{ count: 0 }]),
       safeQuery('SELECT COUNT(*) as count FROM analysis_results', [], [{ count: 0 }]),
-      safeQuery('SELECT COUNT(*) as count FROM journal_entries', [], [{ count: 0 }]),
+      safeQuery('SELECT COUNT(*) as count FROM journals WHERE deleted_at IS NULL', [], [{ count: 0 }]),
       safeQuery('SELECT COUNT(*) as count FROM chat_analysis', [], [{ count: 0 }]),
       safeQuery('SELECT COUNT(*) as count FROM mood_entries', [], [{ count: 0 }]),
       safeQuery(`SELECT COUNT(*) as count FROM subscriptions WHERE plan_id != 'free' AND status = 'active'`, [], [{ count: 0 }]),

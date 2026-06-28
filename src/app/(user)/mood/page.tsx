@@ -97,14 +97,14 @@ export default function MoodTrackerPage() {
     try {
       const res = await fetch('/api/mood')
       const resData = await res.json()
-      if (resData.success && resData.data.length > 0) {
+      if (resData.success && resData.data && resData.data.length > 0) {
         setDbMoods(resData.data)
       } else {
-        setDbMoods(MOCK_MOOD_DATA)
+        setDbMoods([])
       }
     } catch (e) {
       console.error(e)
-      setDbMoods(MOCK_MOOD_DATA)
+      setDbMoods([])
     } finally {
       setLoading(false)
     }
