@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export async function POST(request: Request) {
   try {
-    const { email, password, captchaToken } = await request.json()
+    const { email, password } = await request.json()
 
     if (!email || !password) {
       return NextResponse.json(
@@ -19,9 +19,6 @@ export async function POST(request: Request) {
     let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
-      options: {
-        captchaToken
-      }
     })
 
     // Fallback: If login fails, check if user exists in local database.
@@ -64,9 +61,6 @@ export async function POST(request: Request) {
               const retryRes = await supabase.auth.signInWithPassword({
                 email,
                 password,
-                options: {
-                  captchaToken
-                }
               })
               if (!retryRes.error) {
                 authData = retryRes.data
@@ -79,9 +73,6 @@ export async function POST(request: Request) {
             const retryRes = await supabase.auth.signInWithPassword({
               email,
               password,
-              options: {
-                captchaToken
-              }
             })
             if (!retryRes.error) {
               authData = retryRes.data
